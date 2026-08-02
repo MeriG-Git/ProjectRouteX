@@ -1,0 +1,225 @@
+@model IEnumerable<RouteXWms.Controllers.ShippingLabelGroupViewModel>
+@{
+    ViewData["Title"] = "送り状出力";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-printer me-2 text-primary"></i>送り状出力</h2>
+    </div>
+
+    <!-- Filter & PageSize -->
+    <form method="get" asp-action="ShippingLabel" class="row g-3 mb-3 px-3">
+        <div class="col-md-2 ms-auto">
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+    </form>
+
+    <div class="alert alert-info py-2 small mb-4 mx-3">
+        <i class="bi bi-info-circle me-1"></i> ステータスが「予定」のデータが存在するグループが一覧表示されます。<b>行をクリックすると出力されるCSVのイメージ（プレビュー）を確認できます。</b>「送り状出力」をクリックすると、CSVファイルのダウンロードを開始し、対象データのステータスを「送状出力」に変更します。
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-wms table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>グループコード</th>
+                    <th>荷主</th>
+                    <th>運送会社</th>
+                    <th>出荷倉庫</th>
+                    <th class="text-center" style="width: 150px;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr>
+                        <td colspan="5" class="text-center text-secondary py-4">送り状出力待ち（予定ステータス）のデータはありません。</td>
+                    </tr>
+                }
+                else
+                {
+                    foreach (var item in Model)
+                    {
+                        <tr class="preview-row" style="cursor: pointer;" title="クリックしてCSV出力イメージをプレビュー"
+                            data-group-code="@item.ShippingInstructionGroup"
+                            data-carrier-id="@item.CarrierId"
+                            data-warehouse-id="@item.WarehouseId">
+                            <td><code>@item.ShippingInstructionGroup</code></td>
+                            <td class="fw-semibold">@item.ShipperName</td>
+                            <td>@item.CarrierName</td>
+                            <td><span class="badge bg-info text-dark">@item.WarehouseName</span></td>
+                            <td class="text-center">
+                                <form asp-action="DownloadShippingLabel" method="post" class="d-inline" onclick="event.stopPropagation();">
+                                    <input type="hidden" name="groupCode" value="@item.ShippingInstructionGroup" />
+                                    <input type="hidden" name="carrierId" value="@item.CarrierId" />
+                                    <input type="hidden" name="warehouseId" value="@item.WarehouseId" />
+                                    <button type="submit" class="btn btn-wms-primary btn-sm">
+                                        <i class="bi bi-download me-1"></i> 送り状出力
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <partial name="_Pagination" />
+</div>
+
+<!-- CSV Output Preview Modal -->
+<div class="modal fade" id="csvPreviewModal" tabindex="-1" aria-labelledby="csvPreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="csvPreviewModalLabel">
+                    <i class="bi bi-file-earmark-spreadsheet me-2 text-primary"></i>送り状CSV 出力イメージ
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3">
+                <!-- Group Info Summary -->
+                <div class="row g-3 mb-3 p-3 bg-black-50 rounded border border-secondary">
+                    <div class="col-md-4">
+                        <div class="small text-secondary">グループコード</div>
+                        <div class="fw-bold text-warning font-monospace" id="previewGroupCode">-</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">荷主 / 運送会社</div>
+                        <div class="fw-semibold" id="previewShipperCarrier">-</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-secondary">出荷倉庫</div>
+                        <div><span class="badge bg-info text-dark" id="previewWarehouse">-</span></div>
+                    </div>
+                    <div class="col-md-2 text-end">
+                        <div class="small text-secondary">出力レコード数</div>
+                        <div class="fs-5 fw-bold text-success" id="previewRecordCount">0 件</div>
+                    </div>
+                </div>
+
+                <div class="small text-muted mb-2"><i class="bi bi-arrow-left-right me-1"></i>※商品は商品ID順で並び替えて出力されます。右にスクロールして全45項目を確認できます。</div>
+
+                <!-- CSV Data Table Preview -->
+                <div class="table-responsive" style="max-height: 450px;">
+                    <table class="table table-dark table-striped table-bordered align-middle text-nowrap small mb-0" id="previewTable">
+                        <thead class="table-secondary text-dark sticky-top">
+                            <tr id="previewTableHeader"></tr>
+                        </thead>
+                        <tbody id="previewTableBody">
+                            <tr><td colspan="45" class="text-center py-4 text-secondary">読み込み中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary justify-content-between">
+                <div class="text-muted small"><i class="bi bi-info-circle me-1"></i>プレビュー表示中はステータスは更新されません。</div>
+                <form id="modalDownloadForm" asp-action="DownloadShippingLabel" method="post" class="d-inline">
+                    <input type="hidden" name="groupCode" id="modalGroupCode" />
+                    <input type="hidden" name="carrierId" id="modalCarrierId" />
+                    <input type="hidden" name="warehouseId" id="modalWarehouseId" />
+                    <button type="submit" class="btn btn-wms-primary px-4 fw-bold">
+                        <i class="bi bi-download me-1"></i> この内容で送り状CSVを出力
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const previewModal = new bootstrap.Modal(document.getElementById('csvPreviewModal'));
+
+            // 送り状出力フォーム送信時に画面を自動リロードしてリストを更新
+            document.querySelectorAll('form[action*="DownloadShippingLabel"]').forEach(form => {
+                form.addEventListener('submit', function () {
+                    setTimeout(function () {
+                        location.reload();
+                    }, 1500);
+                });
+            });
+
+            document.querySelectorAll('.preview-row').forEach(row => {
+                row.addEventListener('click', async function () {
+                    const groupCode = this.dataset.groupCode;
+                    const carrierId = this.dataset.carrierId;
+                    const warehouseId = this.dataset.warehouseId;
+
+                    // Set modal download form values
+                    document.getElementById('modalGroupCode').value = groupCode;
+                    document.getElementById('modalCarrierId').value = carrierId;
+                    document.getElementById('modalWarehouseId').value = warehouseId;
+
+                    // Reset modal content
+                    document.getElementById('previewGroupCode').textContent = groupCode;
+                    document.getElementById('previewShipperCarrier').textContent = '読み込み中...';
+                    document.getElementById('previewWarehouse').textContent = '-';
+                    document.getElementById('previewRecordCount').textContent = '- 件';
+
+                    const tableHeader = document.getElementById('previewTableHeader');
+                    const tableBody = document.getElementById('previewTableBody');
+                    tableHeader.innerHTML = '';
+                    tableBody.innerHTML = '<tr><td colspan="45" class="text-center py-4 text-secondary"><div class="spinner-border spinner-border-sm me-2"></div>データ取得中...</td></tr>';
+
+                    previewModal.show();
+
+                    try {
+                        const url = `@Url.Action("GetShippingLabelPreview", "Outbound")?groupCode=${encodeURIComponent(groupCode)}&carrierId=${encodeURIComponent(carrierId)}&warehouseId=${encodeURIComponent(warehouseId || '')}`;
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                            throw new Error('プレビューデータの取得に失敗しました。');
+                        }
+
+                        const data = await response.json();
+
+                        // Set info
+                        document.getElementById('previewGroupCode').textContent = data.groupCode;
+                        document.getElementById('previewShipperCarrier').textContent = `${data.shipperName} / ${data.carrierName}`;
+                        document.getElementById('previewWarehouse').textContent = data.warehouseName;
+                        document.getElementById('previewRecordCount').textContent = `${data.recordCount} 件`;
+
+                        // Render headers
+                        tableHeader.innerHTML = '<th>#</th>' + data.headers.map(h => `<th>${h}</th>`).join('');
+
+                        // Render rows
+                        tableBody.innerHTML = data.rows.map((row, idx) => {
+                            const cells = row.map(cell => `<td>${cell !== null && cell !== undefined ? cell : ''}</td>`).join('');
+                            return `<tr><td class="text-secondary small font-monospace">${idx + 1}</td>${cells}</tr>`;
+                        }).join('');
+
+                    } catch (err) {
+                        tableBody.innerHTML = `<tr><td colspan="45" class="text-center text-danger py-4"><i class="bi bi-exclamation-triangle me-1"></i> ${err.message}</td></tr>`;
+                    }
+                });
+            });
+        });
+    </script>
+}
+

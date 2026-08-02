@@ -1,0 +1,141 @@
+@model IEnumerable<RouteXWms.Models.Account>
+@{
+    ViewData["Title"] = "ユーザー設定";
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-people me-2 text-primary"></i>ユーザーアカウント一覧</h2>
+        <button type="button" class="btn btn-wms-primary" data-bs-toggle="modal" data-bs-target="#editModal" onclick="openCreateModal()">
+            <i class="bi bi-plus-lg me-1"></i> 新規アカウント作成
+        </button>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-wms">
+            <thead>
+                <tr>
+                    <th>アカウント名</th>
+                    <th>権限ロール</th>
+                    <th>作成日時</th>
+                    <th>更新日時</th>
+                    <th class="text-end">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model)
+                {
+                    <tr>
+                        <td class="fw-semibold">@item.AccountName</td>
+                        <td>
+                            @if (item.Role == 0)
+                            {
+                                <span class="badge bg-primary">システム管理者</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">一般ユーザー</span>
+                            }
+                        </td>
+                        <td>@item.CreatedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@item.UpdatedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-info me-1" onclick="openEditModal('@item.AccountName', '@item.Role')">
+                                <i class="bi bi-pencil"></i> 編集
+                            </button>
+                            @if (item.AccountName != "WMSAdmin")
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteItem('@item.AccountName')">
+                                    <i class="bi bi-trash"></i> 削除
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Save Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="Save">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="isNew" name="isNew" value="true" />
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title" id="modalTitle">アカウント情報</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">アカウント名 <span class="text-danger">*</span></label>
+                        <input type="text" id="AccountName" name="AccountName" class="form-control bg-secondary text-white border-0" required maxLength="32" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">パスワード <span id="pwdHelp" class="text-secondary small">(変更時のみ入力)</span></label>
+                        <input type="password" id="Password" name="Password" class="form-control bg-secondary text-white border-0" maxLength="32" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">権限ロール <span class="text-danger">*</span></label>
+                        <select id="Role" name="Role" class="form-select bg-secondary text-white border-0" required>
+                            <option value="0">0: システム管理者</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<form id="singleDeleteForm" method="post" asp-action="Delete">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="accountName" id="deleteAccountName" />
+</form>
+
+@section Scripts {
+    <script>
+        function openCreateModal() {
+            document.getElementById('modalTitle').innerText = 'アカウント新規作成';
+            document.getElementById('isNew').value = 'true';
+            document.getElementById('AccountName').readOnly = false;
+            document.getElementById('AccountName').value = '';
+            document.getElementById('Password').required = true;
+            document.getElementById('Password').value = '';
+            document.getElementById('pwdHelp').style.display = 'none';
+        }
+
+        function openEditModal(name, role) {
+            document.getElementById('modalTitle').innerText = 'アカウント編集';
+            document.getElementById('isNew').value = 'false';
+            document.getElementById('AccountName').readOnly = true;
+            document.getElementById('AccountName').value = name;
+            document.getElementById('Password').required = false;
+            document.getElementById('Password').value = '';
+            document.getElementById('pwdHelp').style.display = 'inline';
+            document.getElementById('Role').value = role;
+            var modal = new bootstrap.Modal(document.getElementById('editModal'));
+            modal.show();
+        }
+
+        function deleteItem(name) {
+            if (confirm(`アカウント [${name}] を削除しますか？`)) {
+                document.getElementById('deleteAccountName').value = name;
+                document.getElementById('singleDeleteForm').submit();
+            }
+        }
+    </script>
+}

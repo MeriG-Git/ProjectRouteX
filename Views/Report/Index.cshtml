@@ -1,0 +1,30 @@
+@{
+    ViewData["Title"] = "帳票管理";
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-file-earmark-bar-graph me-2 text-warning"></i>帳票一覧</h2>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="p-4 rounded-3 border border-secondary bg-dark">
+                <h4 class="fs-5 fw-bold text-white mb-2"><i class="bi bi-file-earmark-pdf text-danger me-2"></i>入出庫月次レポート</h4>
+                <p class="text-secondary small mb-3">月ごとの荷主別・倉庫別の入庫および出庫集計レポートを出力します。</p>
+                <button type="button" class="btn btn-wms-secondary btn-sm" onclick="alert('帳票機能は準備中です。')">
+                    <i class="bi bi-download me-1"></i> レポート出力
+                </button>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="p-4 rounded-3 border border-secondary bg-dark">
+                <h4 class="fs-5 fw-bold text-white mb-2"><i class="bi bi-currency-yen text-success me-2"></i>運賃計算結果明細表</h4>
+                <p class="text-secondary small mb-3">出荷指示に基づく倉庫別最安値運賃の適用状況および費用一覧を出力します。</p>
+                <button type="button" class="btn btn-wms-secondary btn-sm" onclick="alert('帳票機能は準備中です。')">
+                    <i class="bi bi-download me-1"></i> レポート出力
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

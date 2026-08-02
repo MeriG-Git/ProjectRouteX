@@ -1,0 +1,313 @@
+@model IEnumerable<RouteXWms.Models.Product>
+@{
+    ViewData["Title"] = "商品マスター";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+    bool showDeleted = ViewBag.ShowDeleted ?? false;
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-tag me-2 text-warning"></i>商品マスター一覧</h2>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-wms-primary" data-bs-toggle="modal" data-bs-target="#editModal" onclick="openCreateModal()">
+                <i class="bi bi-plus-lg me-1"></i> 新規作成
+            </button>
+            <button type="button" class="btn btn-wms-secondary" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="bi bi-upload me-1"></i> CSVインポート
+            </button>
+            <a asp-action="ExportCsv" class="btn btn-wms-secondary">
+                <i class="bi bi-download me-1"></i> CSVエクスポート
+            </a>
+            <button type="button" id="btnBatchDelete" class="btn btn-outline-danger" disabled onclick="submitBatchDelete()">
+                <i class="bi bi-trash me-1"></i> まとめて削除
+            </button>
+        </div>
+    </div>
+
+    <!-- Search & Filters -->
+    <form method="get" asp-action="Index" class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-search"></i></span>
+                <input type="text" name="searchName" value="@ViewBag.SearchName" class="form-control bg-dark text-white border-secondary" placeholder="商品ID・商品名で検索..." />
+            </div>
+        </div>
+        <div class="col-md-2">
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-center">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="showDeleted" value="true" id="showDeletedCheck" @(showDeleted ? "checked" : "") onchange="this.form.submit()" />
+                <label class="form-check-label text-secondary ms-2" for="showDeletedCheck">削除済みを表示</label>
+            </div>
+        </div>
+        <div class="col-md-3 text-end">
+            <button type="submit" class="btn btn-wms-secondary px-4">絞り込み</button>
+        </div>
+    </form>
+
+    <!-- Table -->
+    <form id="batchDeleteForm" method="post" asp-action="BatchDelete">
+        @Html.AntiForgeryToken()
+        <div class="table-responsive">
+            <table class="table table-wms">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="checkAll" onclick="toggleSelectAll(this)" /></th>
+                        <th>商品ID</th>
+                        <th>商品名</th>
+                        <th>JANコード</th>
+                        <th>縦x横x高さ (cm)</th>
+                        <th>重量 (kg)</th>
+                        <th>入数</th>
+                        <th>ステータス</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!Model.Any())
+                    {
+                        <tr>
+                            <td colspan="9" class="text-center text-secondary py-4">データが存在しません。</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        foreach (var item in Model)
+                        {
+                            <tr class="@(item.IsDeleted ? "opacity-50" : "")">
+                                <td>
+                                    @if (!item.IsDeleted)
+                                    {
+                                        <input type="checkbox" name="ids" value="@item.ProductId" class="form-check-input row-checkbox" onclick="updateBatchButton()" />
+                                    }
+                                </td>
+                                <td><code>@item.ProductId</code></td>
+                                <td class="fw-semibold">@item.ProductName</td>
+                                <td>@item.JanCode</td>
+                                <td>@item.Length x @item.Width x @item.Height</td>
+                                <td>@item.Weight</td>
+                                <td>@item.Quantity</td>
+                                <td>
+                                    @if (item.IsDeleted)
+                                    {
+                                        <span class="badge bg-danger">削除済</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success">有効</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-info me-1" onclick="openEditModal('@item.ProductId', '@item.ProductName', '@item.JanCode', '@item.Length', '@item.Width', '@item.Height', '@item.Weight', '@item.Quantity')">
+                                        <i class="bi bi-pencil"></i> 編集
+                                    </button>
+                                    @if (item.IsDeleted)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="restoreItem('@item.ProductId')">
+                                            <i class="bi bi-arrow-counterclockwise"></i> 復活
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteItem('@item.ProductId')">
+                                            <i class="bi bi-trash"></i> 削除
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <!-- Pagination -->
+    <!-- Pagination -->
+    <partial name="_Pagination" />
+</div>
+
+<!-- Save Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="Save">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="isNew" name="isNew" value="true" />
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title" id="modalTitle">商品情報</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">商品ID (8桁) <span class="text-danger">*</span></label>
+                        <input type="text" id="ProductId" name="ProductId" class="form-control bg-secondary text-white border-0" required maxLength="8" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">商品名 <span class="text-danger">*</span></label>
+                        <input type="text" id="ProductName" name="ProductName" class="form-control bg-secondary text-white border-0" required maxLength="128" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">JANコード (13桁) <span class="text-danger">*</span></label>
+                        <input type="text" id="JanCode" name="JanCode" class="form-control bg-secondary text-white border-0" required maxLength="13" />
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <label class="form-label">縦 (cm)</label>
+                            <input type="number" step="0.1" id="Length" name="Length" class="form-control bg-secondary text-white border-0" required />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">横 (cm)</label>
+                            <input type="number" step="0.1" id="Width" name="Width" class="form-control bg-secondary text-white border-0" required />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">高さ (cm)</label>
+                            <input type="number" step="0.1" id="Height" name="Height" class="form-control bg-secondary text-white border-0" required />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">重量 (kg)</label>
+                            <input type="number" step="1" id="Weight" name="Weight" class="form-control bg-secondary text-white border-0" required />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">入数 (個/箱) <span class="text-danger">*</span></label>
+                            <input type="number" id="Quantity" name="Quantity" class="form-control bg-secondary text-white border-0" required min="1" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="ImportCsv" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">商品マスター CSVインポート</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-secondary">CSVフォーマット: 商品ID, 商品名, JANコード, 縦, 横, 高さ, 重量, 入数</p>
+                    <div class="mb-3">
+                        <input type="file" name="csvFile" accept=".csv" class="form-control bg-secondary text-white border-0" required />
+                    </div>
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="createIfNotFound" value="true" id="createIfNotFound_prd" checked />
+                        <label class="form-check-label text-white" for="createIfNotFound_prd">未存在コードのレコードを新規作成する（OFF時はエラー）</label>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">インポート実行</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Forms for Delete & Restore -->
+<form id="singleDeleteForm" method="post" asp-action="Delete">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="deleteId" />
+</form>
+<form id="singleRestoreForm" method="post" asp-action="Restore">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="restoreId" />
+</form>
+
+@section Scripts {
+    <script>
+        function openCreateModal() {
+            document.getElementById('modalTitle').innerText = '商品新規作成';
+            document.getElementById('isNew').value = 'true';
+            document.getElementById('ProductId').readOnly = false;
+            document.getElementById('ProductId').value = '';
+            document.getElementById('ProductName').value = '';
+            document.getElementById('JanCode').value = '';
+            document.getElementById('Length').value = '0';
+            document.getElementById('Width').value = '0';
+            document.getElementById('Height').value = '0';
+            document.getElementById('Weight').value = '0';
+            document.getElementById('Quantity').value = '1';
+        }
+
+        function openEditModal(id, name, jan, len, wid, hei, wgt, qty) {
+            document.getElementById('modalTitle').innerText = '商品編集';
+            document.getElementById('isNew').value = 'false';
+            document.getElementById('ProductId').readOnly = true;
+            document.getElementById('ProductId').value = id;
+            document.getElementById('ProductName').value = name;
+            document.getElementById('JanCode').value = jan;
+            document.getElementById('Length').value = len;
+            document.getElementById('Width').value = wid;
+            document.getElementById('Height').value = hei;
+            document.getElementById('Weight').value = wgt;
+            document.getElementById('Quantity').value = qty;
+            var modal = new bootstrap.Modal(document.getElementById('editModal'));
+            modal.show();
+        }
+
+        function deleteItem(id) {
+            if (confirm('この商品を削除しますか？')) {
+                document.getElementById('deleteId').value = id;
+                document.getElementById('singleDeleteForm').submit();
+            }
+        }
+
+        function restoreItem(id) {
+            if (confirm('この商品を復活させますか？')) {
+                document.getElementById('restoreId').value = id;
+                document.getElementById('singleRestoreForm').submit();
+            }
+        }
+
+        function toggleSelectAll(master) {
+            var checkboxes = document.querySelectorAll('.row-checkbox');
+            checkboxes.forEach(c => c.checked = master.checked);
+            updateBatchButton();
+        }
+
+        function updateBatchButton() {
+            var selected = document.querySelectorAll('.row-checkbox:checked').length;
+            document.getElementById('btnBatchDelete').disabled = (selected === 0);
+        }
+
+        function submitBatchDelete() {
+            if (confirm('選択した項目をまとめて削除しますか？')) {
+                document.getElementById('batchDeleteForm').submit();
+            }
+        }
+    </script>
+}

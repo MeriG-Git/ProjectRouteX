@@ -1,0 +1,233 @@
+@model IEnumerable<RouteXWms.Models.Outbound>
+@{
+    ViewData["Title"] = "出荷倉庫確認";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header d-flex justify-content-between align-items-center">
+        <h2 class="wms-card-title">
+            <i class="bi bi-shield-check me-2 text-warning"></i>出荷倉庫確認 <span class="badge bg-secondary ms-2 small">確認中のみ</span>
+        </h2>
+        <div class="d-flex gap-2">
+            <form method="post" asp-action="ConfirmAll" onsubmit="return confirm('対象となる「確認中」の出庫データを、画面表示分も含めて全件一括で「予定（確認済）」に変更します。よろしいですか？')">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="groupCode" value="@ViewBag.GroupCode" />
+                <button type="submit" class="btn btn-warning fw-bold text-dark shadow-sm">
+                    <i class="bi bi-check-all me-1"></i> 全て確認済みにする
+                </button>
+            </form>
+            <button type="button" id="btnBulkConfirm" class="btn btn-wms-primary" disabled>
+                <i class="bi bi-check-lg me-1"></i> 選択した項目をまとめて確認済にする
+            </button>
+        </div>
+    </div>
+
+    <!-- Filter by Group -->
+    <form method="get" asp-action="ConfirmWarehouse" class="row g-3 mb-4">
+        <div class="col-md-5">
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-collection"></i></span>
+                <input type="text" name="groupCode" value="@ViewBag.GroupCode" class="form-control bg-dark text-white border-secondary" placeholder="出荷指示グループコードで絞り込み..." />
+            </div>
+        </div>
+        <div class="col-md-2">
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-wms-secondary px-4">検索</button>
+            <a asp-action="ConfirmWarehouse" class="btn btn-outline-secondary">クリア</a>
+        </div>
+    </form>
+
+    <form id="bulkForm" method="post" asp-action="ConfirmBulk">
+        <div class="table-responsive">
+            <table class="table table-wms align-middle">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            @if (Model.Any(item => item.Status == 1))
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input check-wms" type="checkbox" id="checkAll" />
+                                </div>
+                            }
+                        </th>
+                        <th>出荷指示グループ</th>
+                        <th>荷主</th>
+                        <th>運送会社 / 出庫種別</th>
+                        <th>荷送人コード</th>
+                        <th>納品先コード</th>
+                        <th>お届け先住所 / 名称 / 電話</th>
+                        <th>商品</th>
+                        <th>出荷倉庫</th>
+                        <th>料金</th>
+                        <th>日付（予定 / 実績 / 確認）</th>
+                        <th>数量（箱数 / 部数）</th>
+                        <th>ステータス</th>
+                        <th class="text-center" style="width: 160px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!Model.Any())
+                    {
+                        <tr>
+                            <td colspan="14" class="text-center text-secondary py-4">確認中の出庫データはありません。</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        foreach (var item in Model)
+                        {
+                            <tr>
+                                <td>
+                                    @if (item.Status == 1)
+                                    {
+                                        <div class="form-check">
+                                            <input class="form-check-input check-wms child-check" type="checkbox" name="ids" value="@item.OutboundId" />
+                                        </div>
+                                    }
+                                </td>
+                                <td><code>@item.ShippingInstructionGroup</code></td>
+                                <td class="fw-semibold">@(item.Shipper?.ShipperName ?? "-")</td>
+                                <td>
+                                    <div>@(item.Carrier?.CarrierName ?? "-")</div>
+                                    <div class="small text-secondary">
+                                        区分: @(item.ShippingClass?.ClassName ?? "-")
+                                    </div>
+                                </td>
+                                <td><code>@(item.SenderCode ?? "-")</code></td>
+                                <td><code>@item.RecipientCode</code></td>
+                                <td>
+                                    <div class="small">〒@item.ZipCode @item.Address1 @item.Address2 @item.Address3</div>
+                                    <div class="fw-semibold">@item.CompanyName1 @item.CompanyName2 @item.RecipientName</div>
+                                    @if (!string.IsNullOrEmpty(item.Tel))
+                                    {
+                                        <div class="small text-secondary font-monospace"><i class="bi bi-telephone"></i> @item.Tel</div>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="fw-semibold">@item.ProductId</span>
+                                    <div class="small text-secondary">@(item.Product?.ProductName ?? "-")</div>
+                                </td>
+                                <td>
+                                    @if (item.Warehouse != null)
+                                    {
+                                        <span class="badge bg-info text-dark">@item.Warehouse.WarehouseName</span>
+                                    }
+                                    else if (item.Status == 801)
+                                    {
+                                        <span class="badge bg-danger">未定 (料金無し)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">未定 (在庫切れ)</span>
+                                    }
+                                </td>
+                                <td class="fw-bold text-success">
+                                    @(item.Price.HasValue ? $"{item.Price.Value:C0}" : "-")
+                                </td>
+                                <td>
+                                    <div class="small text-nowrap">予定: @(item.ScheduledOutboundDate?.ToString("yyyy-MM-dd") ?? "-")</div>
+                                    <div class="small text-nowrap">実績: @(item.ActualOutboundDate?.ToString("yyyy-MM-dd") ?? "-")</div>
+                                    <div class="small text-nowrap">確認: @(item.ConfirmedOutboundDate?.ToString("yyyy-MM-dd") ?? "-")</div>
+                                </td>
+                                <td>
+                                    <div class="fw-bold text-warning text-nowrap">@item.CaseCount 箱 <span class="small text-white">(@item.TotalPieces 部)</span></div>
+                                    <div class="small text-secondary text-nowrap">PL数: @item.PalletCount</div>
+                                    <div class="small text-secondary text-nowrap">重量: @(item.OutboundWeight?.ToString() ?? "-") kg</div>
+                                </td>
+                                <td>
+                                    @if (item.Status == 801)
+                                    {
+                                        <a asp-action="CompareRates" asp-route-id="@item.OutboundId" class="badge bg-danger text-decoration-none">該当料金無し <i class="bi bi-arrow-right-short"></i></a>
+                                    }
+                                    else
+                                    {
+                                        <a asp-action="CompareRates" asp-route-id="@item.OutboundId" class="badge bg-warning text-dark text-decoration-none">確認中 <i class="bi bi-arrow-right-short"></i></a>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-flex gap-1 justify-content-center">
+                                        <a asp-action="Edit" asp-route-id="@item.OutboundId" class="btn btn-sm btn-outline-secondary">
+                                            <i class="bi bi-pencil"></i> 編集
+                                        </a>
+                                        @if (item.Status == 1)
+                                        {
+                                            <button type="submit" asp-action="ConfirmSingle" asp-route-id="@item.OutboundId" class="btn btn-sm btn-success">
+                                                <i class="bi bi-check-lg"></i> 確認済
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <!-- Pagination -->
+    <partial name="_Pagination" />
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const checkAll = document.getElementById('checkAll');
+            const childChecks = document.querySelectorAll('.child-check');
+            const btnBulkConfirm = document.getElementById('btnBulkConfirm');
+            const bulkForm = document.getElementById('bulkForm');
+
+            function toggleBulkButton() {
+                const checkedCount = document.querySelectorAll('.child-check:checked').length;
+                btnBulkConfirm.disabled = checkedCount === 0;
+            }
+
+            if (checkAll) {
+                checkAll.addEventListener('change', function () {
+                    childChecks.forEach(cb => cb.checked = checkAll.checked);
+                    toggleBulkButton();
+                });
+            }
+
+            childChecks.forEach(cb => {
+                cb.addEventListener('change', function () {
+                    const allChecked = Array.from(childChecks).every(c => c.checked);
+                    if (checkAll) checkAll.checked = allChecked;
+                    toggleBulkButton();
+                });
+            });
+
+            btnBulkConfirm.addEventListener('click', function () {
+                if (confirm('選択した出庫データをまとめて「予定」ステータスに更新しますか？')) {
+                    bulkForm.action = '@Url.Action("ConfirmBulk", "Outbound")';
+                    bulkForm.submit();
+                }
+            });
+        });
+    </script>
+}

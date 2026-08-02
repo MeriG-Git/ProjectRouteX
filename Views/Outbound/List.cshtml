@@ -1,0 +1,124 @@
+@model IEnumerable<RouteXWms.Models.Outbound>
+@{
+    ViewData["Title"] = "出庫記録一覧";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-arrow-up-right-square me-2 text-danger"></i>出庫記録一覧</h2>
+        <a asp-action="ImportInstruction" class="btn btn-wms-primary">
+            <i class="bi bi-file-earmark-excel me-1"></i> 出荷指示読込
+        </a>
+    </div>
+
+    <!-- Filter by Group -->
+    <form method="get" asp-action="List" class="row g-3 mb-4">
+        <div class="col-md-5">
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-collection"></i></span>
+                <input type="text" name="groupCode" value="@ViewBag.GroupCode" class="form-control bg-dark text-white border-secondary" placeholder="出荷指示グループコードで絞り込み..." />
+            </div>
+        </div>
+        <div class="col-md-2">
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-wms-secondary px-4">検索</button>
+            <a asp-action="List" class="btn btn-outline-secondary">クリア</a>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-wms">
+            <thead>
+                <tr>
+                    <th>グループコード</th>
+                    <th>荷主</th>
+                    <th>運送会社</th>
+                    <th>納品先 / 会社・氏名</th>
+                    <th>商品</th>
+                    <th>出荷倉庫</th>
+                    <th>出庫予定日</th>
+                    <th>出庫数量 (箱/部)</th>
+                    <th>出庫重量</th>
+                    <th>料金</th>
+                    <th>ステータス</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr>
+                        <td colspan="11" class="text-center text-secondary py-4">出庫データがありません。</td>
+                    </tr>
+                }
+                else
+                {
+                    foreach (var item in Model)
+                    {
+                        <tr>
+                            <td><code>@item.ShippingInstructionGroup</code></td>
+                            <td class="fw-semibold">@(item.Shipper?.ShipperName ?? "-")</td>
+                            <td>
+                                <div>@(item.Carrier?.CarrierName ?? "-")</div>
+                                @if (!string.IsNullOrEmpty(item.SenderCode))
+                                {
+                                    <div class="small text-secondary">荷送人: @item.SenderCode</div>
+                                }
+                            </td>
+                            <td>
+                                <div>@item.RecipientCode - @item.CompanyName1 @item.RecipientName</div>
+                                <div class="small text-secondary">〒@item.ZipCode @item.Address1 @item.Address2</div>
+                            </td>
+                            <td>@(item.Product?.ProductName ?? item.ProductId)</td>
+                            <td><span class="badge bg-info text-dark">@(item.Warehouse?.WarehouseName ?? "-")</span></td>
+                            <td>
+                                <div>@item.ScheduledOutboundDate?.ToString("yyyy-MM-dd")</div>
+                                @if (item.DeliveryTimeClass.HasValue)
+                                {
+                                    <div class="small text-secondary">時間帯: @item.DeliveryTimeClass.Value</div>
+                                }
+                            </td>
+                            <td>
+                                <div class="fw-bold text-warning">@item.CaseCount 箱 <span class="small text-white">(@item.TotalPieces 部)</span></div>
+                            </td>
+                            <td>@(item.OutboundWeight?.ToString() ?? "-") kg</td>
+                            <td class="fw-bold text-success">@(item.Price.HasValue ? $"{item.Price.Value:C0}" : "-")</td>
+                            <td>
+                                @switch (item.Status)
+                                {
+                                    case 1: <span class="badge bg-warning text-dark">確認中</span> break;
+                                    case 11: <span class="badge bg-info text-dark">予定</span> break;
+                                    case 21: <span class="badge bg-success">送状出力</span> break;
+                                    case 31: <span class="badge bg-primary">請求済</span> break;
+                                    case 801: <span class="badge bg-danger">該当料金無し</span> break;
+                                    case 998: <span class="badge bg-danger">在庫切れ</span> break;
+                                    case 999: <span class="badge bg-secondary">取消</span> break;
+                                    default: <span class="badge bg-secondary">@item.Status</span> break;
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <partial name="_Pagination" />
+</div>

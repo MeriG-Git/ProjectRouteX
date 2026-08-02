@@ -1,0 +1,83 @@
+@{
+    int currentPage = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+
+    int startPage = Math.Max(1, currentPage - 2);
+    int endPage = Math.Min(totalPages, currentPage + 2);
+
+    var queryDict = ViewContext.HttpContext.Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString());
+
+    string GetPageUrl(int targetPage)
+    {
+        var dict = new Dictionary<string, string?>(queryDict);
+        dict["page"] = targetPage.ToString();
+        dict["pageSize"] = pageSize.ToString();
+        return Url.Action(null, dict) ?? "#";
+    }
+}
+
+@if (totalPages > 1)
+{
+    <nav class="d-flex justify-content-between align-items-center mt-4 flex-wrap gap-2">
+        <div class="text-secondary small">
+            全 <span class="text-white fw-bold">@totalPages.ToString("N0")</span> ページ中 <span class="text-info fw-bold">@currentPage.ToString("N0")</span> ページ目を表示
+        </div>
+        <ul class="pagination pagination-sm m-0">
+            <!-- 先頭へ -->
+            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                <a class="page-link bg-dark text-white border-secondary" href="@GetPageUrl(1)" title="最初のページ">
+                    <i class="bi bi-chevron-double-left"></i>
+                </a>
+            </li>
+            <!-- 前へ -->
+            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                <a class="page-link bg-dark text-white border-secondary" href="@GetPageUrl(currentPage - 1)" title="前へ">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+            </li>
+
+            @if (startPage > 1)
+            {
+                <li class="page-item">
+                    <a class="page-link bg-dark text-white border-secondary" href="@GetPageUrl(1)">1</a>
+                </li>
+                @if (startPage > 2)
+                {
+                    <li class="page-item disabled"><span class="page-link bg-dark text-secondary border-secondary">...</span></li>
+                }
+            }
+
+            @for (int p = startPage; p <= endPage; p++)
+            {
+                <li class="page-item @(p == currentPage ? "active" : "")">
+                    <a class="page-link @(p == currentPage ? "bg-primary border-primary text-white" : "bg-dark text-white border-secondary")" href="@GetPageUrl(p)">@p</a>
+                </li>
+            }
+
+            @if (endPage < totalPages)
+            {
+                @if (endPage < totalPages - 1)
+                {
+                    <li class="page-item disabled"><span class="page-link bg-dark text-secondary border-secondary">...</span></li>
+                }
+                <li class="page-item">
+                    <a class="page-link bg-dark text-white border-secondary" href="@GetPageUrl(totalPages)">@totalPages</a>
+                </li>
+            }
+
+            <!-- 次へ -->
+            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                <a class="page-link bg-dark text-white border-secondary" href="@GetPageUrl(currentPage + 1)" title="次へ">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+            <!-- 最終へ -->
+            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                <a class="page-link bg-dark text-white border-secondary" href="@GetPageUrl(totalPages)" title="最後のページ">
+                    <i class="bi bi-chevron-double-right"></i>
+                </a>
+            </li>
+        </ul>
+    </nav>
+}

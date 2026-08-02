@@ -1,0 +1,326 @@
+@model IEnumerable<RouteXWms.Models.IndividualFreight>
+@{
+    ViewData["Title"] = "個配運賃マスター";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+    bool showDeleted = ViewBag.ShowDeleted ?? false;
+    var freightTables = ViewBag.FreightTables as List<RouteXWms.Models.FreightTable> ?? new();
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-cash-coin me-2 text-primary"></i>個配運賃マスター一覧</h2>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-wms-primary" data-bs-toggle="modal" data-bs-target="#editModal" onclick="openCreateModal()">
+                <i class="bi bi-plus-lg me-1"></i> 新規作成
+            </button>
+            <button type="button" class="btn btn-wms-secondary" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="bi bi-upload me-1"></i> CSVインポート
+            </button>
+            <a asp-action="ExportCsv" class="btn btn-wms-secondary">
+                <i class="bi bi-download me-1"></i> CSVエクスポート
+            </a>
+            <button type="button" id="btnBatchDelete" class="btn btn-outline-danger" disabled onclick="submitBatchDelete()">
+                <i class="bi bi-trash me-1"></i> まとめて削除
+            </button>
+        </div>
+    </div>
+
+    <!-- Search & Filters -->
+    <form method="get" asp-action="Index" class="row g-3 mb-4">
+        <div class="col-md-3">
+            <select name="freightTableId" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <option value="">-- 全ての運賃表 --</option>
+                @foreach (var ft in freightTables)
+                {
+                    <!option value="@ft.FreightTableId" @(ViewBag.SelectedFreightTableId == ft.FreightTableId ? "selected" : "")>@ft.RateName (@(ft.Carrier?.CarrierName ?? "未指定"))</!option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-search"></i></span>
+                <input type="text" name="searchName" value="@ViewBag.SearchName" class="form-control bg-dark text-white border-secondary" placeholder="都道府県や運賃表名で検索..." />
+            </div>
+        </div>
+        <div class="col-md-2">
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+        <div class="col-md-2 d-flex align-items-center">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="showDeleted" value="true" id="showDeletedCheck" @(showDeleted ? "checked" : "") onchange="this.form.submit()" />
+                <label class="form-check-label text-secondary ms-2" for="showDeletedCheck">削除済みを表示</label>
+            </div>
+        </div>
+        <div class="col-md-2 text-end">
+            <button type="submit" class="btn btn-wms-secondary w-100">絞り込み</button>
+        </div>
+    </form>
+
+    <!-- Table -->
+    <form id="batchDeleteForm" method="post" asp-action="BatchDelete">
+        @Html.AntiForgeryToken()
+        <div class="table-responsive">
+            <table class="table table-wms">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="checkAll" onclick="toggleSelectAll(this)" /></th>
+                        <th>運賃表名</th>
+                        <th>運送会社</th>
+                        <th>県コード</th>
+                        <th>都道府県名</th>
+                        <th class="text-end">大きさ</th>
+                        <th class="text-end">重量</th>
+                        <th class="text-end">原価 (円)</th>
+                        <th class="text-end">売価 (円)</th>
+                        <th>ステータス</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!Model.Any())
+                    {
+                        <tr>
+                            <td colspan="11" class="text-center text-secondary py-4">データが存在しません。</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        foreach (var item in Model)
+                        {
+                            <tr class="@(item.IsDeleted ? "opacity-50" : "")">
+                                <td>
+                                    @if (!item.IsDeleted)
+                                    {
+                                        <input type="checkbox" name="ids" value="@item.IndividualFreightId" class="form-check-input row-checkbox" onclick="updateBatchButton()" />
+                                    }
+                                </td>
+                                <td class="fw-semibold">@(item.FreightTable?.RateName ?? "未指定")</td>
+                                <td>@(item.FreightTable?.Carrier?.CarrierName ?? "未指定")</td>
+                                <td><code>@item.PrefCode</code></td>
+                                <td>@item.PrefName</td>
+                                <td class="text-end font-monospace">@item.Size</td>
+                                <td class="text-end font-monospace">@item.Weight</td>
+                                <td class="text-end fw-semibold text-secondary">¥@item.Cost.ToString("N0")</td>
+                                <td class="text-end fw-semibold text-success">¥@item.Price.ToString("N0")</td>
+                                <td>
+                                    @if (item.IsDeleted)
+                                    {
+                                        <span class="badge bg-danger">削除済</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success">有効</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-info me-1" onclick="openEditModal('@item.IndividualFreightId', '@item.FreightTableId', '@item.PrefCode', '@item.PrefName', @item.Size, @item.Weight, @item.Cost, @item.Price)">
+                                        <i class="bi bi-pencil"></i> 編集
+                                    </button>
+                                    @if (item.IsDeleted)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="restoreItem('@item.IndividualFreightId')">
+                                            <i class="bi bi-arrow-counterclockwise"></i> 復活
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteItem('@item.IndividualFreightId')">
+                                            <i class="bi bi-trash"></i> 削除
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <!-- Pagination -->
+    <partial name="_Pagination" />
+</div>
+
+<!-- Save Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="Save">
+                @Html.AntiForgeryToken()
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title" id="modalTitle">個配運賃情報</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="IndividualFreightId" name="IndividualFreightId" />
+                    <div class="mb-3">
+                        <label class="form-label">運賃表 <span class="text-danger">*</span></label>
+                        <select id="FreightTableId" name="FreightTableId" class="form-select bg-secondary text-white border-0" required>
+                            <option value="">-- 選択してください --</option>
+                            @foreach (var ft in freightTables)
+                            {
+                                <option value="@ft.FreightTableId">@ft.RateName (@(ft.Carrier?.CarrierName ?? "未指定"))</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">県コード (2桁) <span class="text-danger">*</span></label>
+                            <input type="text" id="PrefCode" name="PrefCode" class="form-control bg-secondary text-white border-0" required maxLength="2" placeholder="例: 13" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">都道府県名 <span class="text-danger">*</span></label>
+                            <input type="text" id="PrefName" name="PrefName" class="form-control bg-secondary text-white border-0" required maxLength="32" placeholder="例: 東京都" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">大きさ (整数) <span class="text-danger">*</span></label>
+                            <input type="number" id="Size" name="Size" class="form-control bg-secondary text-white border-0" required min="0" placeholder="例: 60" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">重量 (整数) <span class="text-danger">*</span></label>
+                            <input type="number" id="Weight" name="Weight" class="form-control bg-secondary text-white border-0" required min="0" placeholder="例: 2" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">原価 (円) <span class="text-danger">*</span></label>
+                            <input type="number" id="Cost" name="Cost" class="form-control bg-secondary text-white border-0" required min="0" placeholder="例: 500" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">売価 (円) <span class="text-danger">*</span></label>
+                            <input type="number" id="Price" name="Price" class="form-control bg-secondary text-white border-0" required min="0" placeholder="例: 750" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="ImportCsv" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">個配運賃マスター CSVインポート</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-secondary">CSVフォーマット: 個配運賃ID, 運賃表ID, 県コード, 都道府県名, 大きさ, 重量, 原価, 売価</p>
+                    <div class="mb-3">
+                        <input type="file" name="csvFile" accept=".csv" class="form-control bg-secondary text-white border-0" required />
+                    </div>
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="createIfNotFound" value="true" id="createIfNotFound_ind" checked />
+                        <label class="form-check-label text-white" for="createIfNotFound_ind">未存在IDのレコードを新規作成する（OFF時はエラー）</label>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">インポート実行</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Forms for Delete & Restore -->
+<form id="singleDeleteForm" method="post" asp-action="Delete">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="deleteId" />
+</form>
+<form id="singleRestoreForm" method="post" asp-action="Restore">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="restoreId" />
+</form>
+
+@section Scripts {
+    <script>
+        function openCreateModal() {
+            document.getElementById('modalTitle').innerText = '個配運賃新規作成';
+            document.getElementById('IndividualFreightId').value = '';
+            document.getElementById('FreightTableId').value = '';
+            document.getElementById('PrefCode').value = '';
+            document.getElementById('PrefName').value = '';
+            document.getElementById('Size').value = '0';
+            document.getElementById('Weight').value = '0';
+            document.getElementById('Cost').value = '0';
+            document.getElementById('Price').value = '0';
+        }
+
+        function openEditModal(id, freightTableId, prefCode, prefName, size, weight, cost, price) {
+            document.getElementById('modalTitle').innerText = '個配運賃編集';
+            document.getElementById('IndividualFreightId').value = id;
+            document.getElementById('FreightTableId').value = freightTableId;
+            document.getElementById('PrefCode').value = prefCode;
+            document.getElementById('PrefName').value = prefName;
+            document.getElementById('Size').value = size !== undefined ? size : 0;
+            document.getElementById('Weight').value = weight !== undefined ? weight : 0;
+            document.getElementById('Cost').value = cost !== undefined ? cost : 0;
+            document.getElementById('Price').value = price !== undefined ? price : 0;
+            var modal = new bootstrap.Modal(document.getElementById('editModal'));
+            modal.show();
+        }
+
+        function deleteItem(id) {
+            if (confirm('この個配運賃設定を削除しますか？')) {
+                document.getElementById('deleteId').value = id;
+                document.getElementById('singleDeleteForm').submit();
+            }
+        }
+
+        function restoreItem(id) {
+            if (confirm('この個配運賃設定を復活させますか？')) {
+                document.getElementById('restoreId').value = id;
+                document.getElementById('singleRestoreForm').submit();
+            }
+        }
+
+        function toggleSelectAll(master) {
+            var checkboxes = document.querySelectorAll('.row-checkbox');
+            checkboxes.forEach(c => c.checked = master.checked);
+            updateBatchButton();
+        }
+
+        function updateBatchButton() {
+            var selected = document.querySelectorAll('.row-checkbox:checked').length;
+            document.getElementById('btnBatchDelete').disabled = (selected === 0);
+        }
+
+        function submitBatchDelete() {
+            if (confirm('選択した項目をまとめて削除しますか？')) {
+                document.getElementById('batchDeleteForm').submit();
+            }
+        }
+    </script>
+}

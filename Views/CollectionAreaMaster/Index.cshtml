@@ -1,0 +1,347 @@
+@model IEnumerable<RouteXWms.Models.CollectionArea>
+@{
+    ViewData["Title"] = "集荷エリアマスター";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+    bool showDeleted = ViewBag.ShowDeleted ?? false;
+    var shippers = ViewBag.Shippers as IEnumerable<RouteXWms.Models.Shipper> ?? Enumerable.Empty<RouteXWms.Models.Shipper>();
+    var warehouses = ViewBag.Warehouses as IEnumerable<RouteXWms.Models.Warehouse> ?? Enumerable.Empty<RouteXWms.Models.Warehouse>();
+    var shippingClasses = ViewBag.ShippingClasses as IEnumerable<RouteXWms.Models.ShippingClass> ?? Enumerable.Empty<RouteXWms.Models.ShippingClass>();
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-map me-2 text-info"></i>集荷エリアマスター一覧</h2>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-wms-primary" data-bs-toggle="modal" data-bs-target="#editModal" onclick="openCreateModal()">
+                <i class="bi bi-plus-lg me-1"></i> 新規作成
+            </button>
+            <button type="button" class="btn btn-wms-secondary" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="bi bi-upload me-1"></i> CSVインポート
+            </button>
+            <a asp-action="ExportCsv" class="btn btn-wms-secondary">
+                <i class="bi bi-download me-1"></i> CSVエクスポート
+            </a>
+            <button type="button" id="btnBatchDelete" class="btn btn-outline-danger" disabled onclick="submitBatchDelete()">
+                <i class="bi bi-trash me-1"></i> まとめて削除
+            </button>
+        </div>
+    </div>
+
+    <!-- Search & Filters -->
+    <form method="get" asp-action="Index" class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-search"></i></span>
+                <input type="text" name="searchName" value="@ViewBag.SearchName" class="form-control bg-dark text-white border-secondary" placeholder="集荷エリア名で検索..." />
+            </div>
+        </div>
+        <div class="col-md-2">
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-center">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="showDeleted" value="true" id="showDeletedCheck" @(showDeleted ? "checked" : "") onchange="this.form.submit()" />
+                <label class="form-check-label text-secondary ms-2" for="showDeletedCheck">削除済みを表示</label>
+            </div>
+        </div>
+        <div class="col-md-3 text-end">
+            <button type="submit" class="btn btn-wms-secondary px-4">絞り込み</button>
+        </div>
+    </form>
+
+    <!-- Table -->
+    <form id="batchDeleteForm" method="post" asp-action="BatchDelete">
+        @Html.AntiForgeryToken()
+        <div class="table-responsive">
+            <table class="table table-wms">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="checkAll" onclick="toggleSelectAll(this)" /></th>
+                        <th>集荷エリア名</th>
+                        <th>荷主</th>
+                        <th>倉庫</th>
+                        <th>出庫区分</th>
+                        <th>ヤマト発店</th>
+                        <th>お客様コード</th>
+                        <th>ステータス</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!Model.Any())
+                    {
+                        <tr>
+                            <td colspan="9" class="text-center text-secondary py-4">データが存在しません。</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        foreach (var item in Model)
+                        {
+                            <tr class="@(item.IsDeleted ? "opacity-50" : "")">
+                                <td>
+                                    @if (!item.IsDeleted)
+                                    {
+                                        <input type="checkbox" name="ids" value="@item.AreaId" class="form-check-input row-checkbox" onclick="updateBatchButton()" />
+                                    }
+                                </td>
+                                <td class="fw-semibold">@item.AreaName</td>
+                                <td>@(item.Shipper?.ShipperName ?? "-")</td>
+                                <td>@(item.Warehouse?.WarehouseName ?? "-")</td>
+                                <td>@(item.ShippingClass?.ClassName ?? "-")</td>
+                                <td>@item.YamatoShopCode</td>
+                                <td>@item.YamatoCustomerCode - @item.YamatoSubCode</td>
+                                <td>
+                                    @if (item.IsDeleted)
+                                    {
+                                        <span class="badge bg-danger">削除済</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success">有効</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-info me-1" onclick="openEditModal('@item.AreaId', '@item.ShipperId', '@item.ShippingClassId', '@item.WarehouseId', '@item.AreaName', '@item.InvoiceType', '@item.YamatoShopCode', '@item.YamatoCustomerCode', '@item.YamatoSubCode', '@item.YamatoFreightMgmt', '@item.SenderCode')">
+                                        <i class="bi bi-pencil"></i> 編集
+                                    </button>
+                                    @if (item.IsDeleted)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="restoreItem('@item.AreaId')">
+                                            <i class="bi bi-arrow-counterclockwise"></i> 復活
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteItem('@item.AreaId')">
+                                            <i class="bi bi-trash"></i> 削除
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <!-- Pagination -->
+    <partial name="_Pagination" />
+</div>
+
+<!-- Save Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="Save">
+                @Html.AntiForgeryToken()
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title" id="modalTitle">集荷エリア情報</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="AreaId" name="AreaId" />
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">集荷エリア名 <span class="text-danger">*</span></label>
+                            <input type="text" id="AreaName" name="AreaName" class="form-control bg-secondary text-white border-0" required maxLength="64" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">荷主 <span class="text-danger">*</span></label>
+                            <select id="ShipperId" name="ShipperId" class="form-select bg-secondary text-white border-0" required>
+                                <option value="">-- 選択してください --</option>
+                                @foreach (var s in shippers)
+                                {
+                                    <option value="@s.ShipperId">@s.ShipperName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">倉庫 <span class="text-danger">*</span></label>
+                            <select id="WarehouseId" name="WarehouseId" class="form-select bg-secondary text-white border-0" required>
+                                <option value="">-- 選択してください --</option>
+                                @foreach (var w in warehouses)
+                                {
+                                    <option value="@w.WarehouseId">@w.WarehouseName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">出庫区分 <span class="text-danger">*</span></label>
+                            <select id="ShippingClassId" name="ShippingClassId" class="form-select bg-secondary text-white border-0" required>
+                                <option value="">-- 選択してください --</option>
+                                @foreach (var sc in shippingClasses)
+                                {
+                                    <option value="@sc.ShippingClassId">@sc.ClassName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">送り状種別</label>
+                            <input type="number" id="InvoiceType" name="InvoiceType" class="form-control bg-secondary text-white border-0" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">ヤマト発店コード</label>
+                            <input type="text" id="YamatoShopCode" name="YamatoShopCode" class="form-control bg-secondary text-white border-0" maxLength="6" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">ヤマトお客様コード</label>
+                            <input type="text" id="YamatoCustomerCode" name="YamatoCustomerCode" class="form-control bg-secondary text-white border-0" maxLength="12" />
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">顧客コード枝番</label>
+                            <input type="text" id="YamatoSubCode" name="YamatoSubCode" class="form-control bg-secondary text-white border-0" maxLength="3" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">ヤマト運賃管理</label>
+                            <input type="number" id="YamatoFreightMgmt" name="YamatoFreightMgmt" class="form-control bg-secondary text-white border-0" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">荷送人コード</label>
+                            <input type="text" id="SenderCode" name="SenderCode" class="form-control bg-secondary text-white border-0" maxLength="12" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="ImportCsv" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">集荷エリアマスター CSVインポート</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-secondary">CSVフォーマット: 集荷エリアID, 荷主ID, 出庫区分ID, 倉庫ID, 集荷エリア名, 送り状種別, ヤマト発店コード, ヤマトお客様コード, 顧客コード枝番, ヤマト運賃管理, 荷送人コード</p>
+                    <div class="mb-3">
+                        <input type="file" name="csvFile" accept=".csv" class="form-control bg-secondary text-white border-0" required />
+                    </div>
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="createIfNotFound" value="true" id="createIfNotFound_ca" checked />
+                        <label class="form-check-label text-white" for="createIfNotFound_ca">未存在IDのレコードを新規作成する（OFF時はエラー）</label>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">インポート実行</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Forms for Delete & Restore -->
+<form id="singleDeleteForm" method="post" asp-action="Delete">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="deleteId" />
+</form>
+<form id="singleRestoreForm" method="post" asp-action="Restore">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="restoreId" />
+</form>
+
+@section Scripts {
+    <script>
+        function openCreateModal() {
+            document.getElementById('modalTitle').innerText = '集荷エリア新規作成';
+            document.getElementById('AreaId').value = '';
+            document.getElementById('ShipperId').value = '';
+            document.getElementById('ShippingClassId').value = '';
+            document.getElementById('WarehouseId').value = '';
+            document.getElementById('AreaName').value = '';
+            document.getElementById('InvoiceType').value = '0';
+            document.getElementById('YamatoShopCode').value = '';
+            document.getElementById('YamatoCustomerCode').value = '';
+            document.getElementById('YamatoSubCode').value = '';
+            document.getElementById('YamatoFreightMgmt').value = '0';
+            document.getElementById('SenderCode').value = '';
+        }
+
+        function openEditModal(id, shipperId, shippingClassId, warehouseId, name, invType, yShop, yCust, ySub, yFreight, sender) {
+            document.getElementById('modalTitle').innerText = '集荷エリア編集';
+            document.getElementById('AreaId').value = id;
+            document.getElementById('ShipperId').value = shipperId;
+            document.getElementById('ShippingClassId').value = shippingClassId;
+            document.getElementById('WarehouseId').value = warehouseId;
+            document.getElementById('AreaName').value = name;
+            document.getElementById('InvoiceType').value = invType;
+            document.getElementById('YamatoShopCode').value = yShop;
+            document.getElementById('YamatoCustomerCode').value = yCust;
+            document.getElementById('YamatoSubCode').value = ySub;
+            document.getElementById('YamatoFreightMgmt').value = yFreight;
+            document.getElementById('SenderCode').value = sender;
+            var modal = new bootstrap.Modal(document.getElementById('editModal'));
+            modal.show();
+        }
+
+        function deleteItem(id) {
+            if (confirm('この集荷エリアを削除しますか？')) {
+                document.getElementById('deleteId').value = id;
+                document.getElementById('singleDeleteForm').submit();
+            }
+        }
+
+        function restoreItem(id) {
+            if (confirm('この集荷エリアを復活させますか？')) {
+                document.getElementById('restoreId').value = id;
+                document.getElementById('singleRestoreForm').submit();
+            }
+        }
+
+        function toggleSelectAll(master) {
+            var checkboxes = document.querySelectorAll('.row-checkbox');
+            checkboxes.forEach(c => c.checked = master.checked);
+            updateBatchButton();
+        }
+
+        function updateBatchButton() {
+            var selected = document.querySelectorAll('.row-checkbox:checked').length;
+            document.getElementById('btnBatchDelete').disabled = (selected === 0);
+        }
+
+        function submitBatchDelete() {
+            if (confirm('選択した項目をまとめて削除しますか？')) {
+                document.getElementById('batchDeleteForm').submit();
+            }
+        }
+    </script>
+}

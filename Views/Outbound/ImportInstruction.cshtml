@@ -1,0 +1,90 @@
+@{
+    ViewData["Title"] = "出荷指示読込";
+    var shippers = ViewBag.Shippers as IEnumerable<RouteXWms.Models.Shipper> ?? Enumerable.Empty<RouteXWms.Models.Shipper>();
+    var carriers = ViewBag.Carriers as IEnumerable<RouteXWms.Models.Carrier> ?? Enumerable.Empty<RouteXWms.Models.Carrier>();
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card" style="max-width: 800px; margin: 0 auto;">
+    <div class="wms-card-header d-flex justify-content-between align-items-center">
+        <h2 class="wms-card-title mb-0"><i class="bi bi-file-earmark-excel me-2 text-success"></i>出荷指示読込 (Excel)</h2>
+        <a asp-action="ShippingInstructionList" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-list-stars me-1"></i> 出荷指示一覧
+        </a>
+    </div>
+
+    <div class="alert alert-info border-info text-white mb-4" style="background: rgba(14, 165, 233, 0.15);">
+        <i class="bi bi-info-circle me-2 fs-5"></i>
+        出荷指示書Excelを取り込み、各受取先郵便番号・商品コード・在庫状況から**最安値の輸送運賃となる倉庫を自動引当**します。
+    </div>
+
+    <form asp-action="ImportInstruction" method="post" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+
+        <div class="mb-4">
+            <label class="form-label">荷主 <span class="text-danger">*</span></label>
+            <select name="shipperId" class="form-select bg-dark text-white border-secondary" required>
+                <option value="">-- 対象荷主を選択してください --</option>
+                @foreach (var s in shippers)
+                {
+                    <option value="@s.ShipperId">@s.ShipperName</option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label">運送会社 <span class="text-danger">*</span></label>
+            <select name="carrierId" class="form-select bg-dark text-white border-secondary" required>
+                <option value="">-- 対象運送会社を選択してください --</option>
+                @foreach (var c in carriers)
+                {
+                    <option value="@c.CarrierId">@c.CarrierName</option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label">重量指定 <span class="text-danger">*</span></label>
+            <div class="d-flex gap-4 p-3 bg-dark rounded border border-secondary">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="weightSpec" id="wFixed30" value="fixed30" checked />
+                    <label class="form-check-label text-white" for="wFixed30">
+                        30Kg固定 (1箱あたり30Kgとして計算)
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="weightSpec" id="wProductMaster" value="productMaster" />
+                    <label class="form-check-label text-white" for="wProductMaster">
+                        商品マスターから参照 (商品重量 x 箱数)
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="skipHeader" value="true" id="skipHeader" checked />
+                <label class="form-check-label text-white" for="skipHeader">1行目をスキップ（タイトル行として扱う）</label>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label">出荷指示Excelファイル (.xlsx) <span class="text-danger">*</span></label>
+            <input type="file" name="excelFile" accept=".xlsx,.xls" class="form-control bg-dark text-white border-secondary" required />
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 pt-3 border-top border-secondary">
+            <a asp-action="List" class="btn btn-secondary px-4">キャンセル</a>
+            <button type="submit" class="btn btn-wms-primary px-5">
+                <i class="bi bi-box-arrow-in-down me-1"></i> 読込実行
+            </button>
+        </div>
+    </form>
+</div>

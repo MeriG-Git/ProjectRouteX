@@ -1,0 +1,165 @@
+@model IEnumerable<RouteXWms.Models.Inbound>
+@{
+    ViewData["Title"] = "入庫記録一覧";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-arrow-down-right-square me-2 text-success"></i>入庫記録一覧</h2>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-wms-secondary" data-bs-toggle="modal" data-bs-target="#importReportModal">
+                <i class="bi bi-upload me-1"></i> 入庫報告取り込み
+            </button>
+            <a asp-action="Register" class="btn btn-wms-primary">
+                <i class="bi bi-plus-lg me-1"></i> 新規入庫登録
+            </a>
+        </div>
+    </div>
+
+    <!-- Filter & PageSize -->
+    <form method="get" asp-action="List" class="row g-3 mb-3 px-3">
+        <div class="col-md-2 ms-auto">
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-wms">
+            <thead>
+                <tr>
+                    <th>荷主</th>
+                    <th>倉庫</th>
+                    <th>商品</th>
+                    <th>入庫予定日</th>
+                    <th>入庫実績日</th>
+                    <th>入庫確認日</th>
+                    <th>入庫種別</th>
+                    <th>パレット数</th>
+                    <th>ケース数</th>
+                    <th>ステータス</th>
+                    <th class="text-end">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr>
+                        <td colspan="11" class="text-center text-secondary py-4">入庫データが登録されていません。</td>
+                    </tr>
+                }
+                else
+                {
+                    foreach (var item in Model)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@(item.Shipper?.ShipperName ?? "-")</td>
+                            <td>@(item.Warehouse?.WarehouseName ?? "-")</td>
+                            <td>@(item.Product?.ProductName ?? item.ProductId)</td>
+                            <td>@item.ScheduledDate?.ToString("yyyy-MM-dd")</td>
+                            <td>@item.ActualDate?.ToString("yyyy-MM-dd")</td>
+                            <td>@item.ConfirmedDate?.ToString("yyyy-MM-dd")</td>
+                            <td>
+                                @switch (item.InboundType)
+                                {
+                                    case 1: <span>1: 路線</span> break;
+                                    case 2: <span>2: パレット</span> break;
+                                    case 3: <span>3: コンテナ</span> break;
+                                    default: <span>@item.InboundType</span> break;
+                                }
+                            </td>
+                            <td>@item.PalletCount</td>
+                            <td class="fw-bold text-info">@item.CaseCount</td>
+                            <td>
+                                @switch (item.Status)
+                                {
+                                    case 1: <span class="badge bg-warning text-dark">予定</span> break;
+                                    case 11: <span class="badge bg-success">確認済</span> break;
+                                    case 21: <span class="badge bg-primary">請求済</span> break;
+                                    default: <span class="badge bg-secondary">@item.Status</span> break;
+                                }
+                            </td>
+                            <td class="text-end">
+                                <a asp-action="Register" asp-route-id="@item.InboundId" class="btn btn-sm btn-outline-info">
+                                    <i class="bi bi-pencil"></i> 編集
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <partial name="_Pagination" />
+</div>
+
+<!-- Import Report Modal -->
+<div class="modal fade" id="importReportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <form method="post" asp-action="ImportReportCsv" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">入庫報告取り込み</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">荷主 <span class="text-danger">*</span></label>
+                        <select name="shipperId" class="form-select bg-secondary text-white border-0" required>
+                            <option value="">-- 選択してください --</option>
+                            @foreach (var s in ViewBag.Shippers as IEnumerable<RouteXWms.Models.Shipper> ?? new List<RouteXWms.Models.Shipper>())
+                            {
+                                <option value="@s.ShipperId">@s.ShipperName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">倉庫 <span class="text-danger">*</span></label>
+                        <select name="warehouseId" class="form-select bg-secondary text-white border-0" required>
+                            <option value="">-- 選択してください --</option>
+                            @foreach (var w in ViewBag.Warehouses as IEnumerable<RouteXWms.Models.Warehouse> ?? new List<RouteXWms.Models.Warehouse>())
+                            {
+                                <option value="@w.WarehouseId">@w.WarehouseName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">入庫報告ファイル (CSV) <span class="text-danger">*</span></label>
+                        <input type="file" name="csvFile" accept=".csv" class="form-control bg-secondary text-white border-0" required />
+                        <div class="form-text text-secondary small mt-1">
+                            CSV列順: 商品ID, 入庫実績日(yyyymmdd), 入庫確認日(yyyymmdd), 入庫種別(1:路線/2:パレット/3:コンテナ), パレット数, ケース数, 備考
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary">取込</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,189 @@
+@model RouteXWms.Models.Inbound
+@{
+    ViewData["Title"] = "入庫登録";
+    var shippers = ViewBag.Shippers as IEnumerable<RouteXWms.Models.Shipper> ?? Enumerable.Empty<RouteXWms.Models.Shipper>();
+    var warehouses = ViewBag.Warehouses as IEnumerable<RouteXWms.Models.Warehouse> ?? Enumerable.Empty<RouteXWms.Models.Warehouse>();
+}
+
+<div class="wms-card" style="max-width: 900px; margin: 0 auto;">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title">
+            <i class="bi bi-plus-circle me-2 text-primary"></i>@(Model.InboundId == Guid.Empty ? "新規入庫登録" : "入庫情報編集")
+        </h2>
+    </div>
+
+    <form asp-action="Register" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="InboundId" />
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label">荷主 <span class="text-danger">*</span></label>
+                <select asp-for="ShipperId" class="form-select bg-dark text-white border-secondary" required>
+                    <option value="">-- 荷主を選択してください --</option>
+                    @foreach (var s in shippers)
+                    {
+                        <option value="@s.ShipperId">@s.ShipperName</option>
+                    }
+                </select>
+                <span asp-validation-for="ShipperId" class="text-danger small"></span>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">倉庫 <span class="text-danger">*</span></label>
+                <select asp-for="WarehouseId" class="form-select bg-dark text-white border-secondary" required>
+                    <option value="">-- 倉庫を選択してください --</option>
+                    @foreach (var w in warehouses)
+                    {
+                        <option value="@w.WarehouseId">@w.WarehouseName</option>
+                    }
+                </select>
+                <span asp-validation-for="WarehouseId" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-8">
+                <label class="form-label">商品ID <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <input asp-for="ProductId" id="txtProductId" class="form-control bg-dark text-white border-secondary" placeholder="商品IDを入力または検索" required />
+                    <button type="button" class="btn btn-wms-primary" data-bs-toggle="modal" data-bs-target="#productSearchModal" onclick="searchProducts()">
+                        <i class="bi bi-search me-1"></i> 商品検索
+                    </button>
+                </div>
+                <span asp-validation-for="ProductId" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">選択中商品名</label>
+                <input type="text" id="lblProductName" class="form-control bg-secondary text-white border-0" readonly placeholder="未選択" />
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">入庫予定日</label>
+                <input type="date" asp-for="ScheduledDate" class="form-control bg-dark text-white border-secondary" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">入庫実績日</label>
+                <input type="date" asp-for="ActualDate" class="form-control bg-dark text-white border-secondary" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">入庫確認日</label>
+                <input type="date" asp-for="ConfirmedDate" class="form-control bg-dark text-white border-secondary" />
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">入庫種別 <span class="text-danger">*</span></label>
+                <select asp-for="InboundType" class="form-select bg-dark text-white border-secondary" required>
+                    <option value="1">1: 路線</option>
+                    <option value="2">2: パレット</option>
+                    <option value="3">3: コンテナ</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">パレット数 (負数はエラー)</label>
+                <input type="number" asp-for="PalletCount" class="form-control bg-dark text-white border-secondary" min="0" required />
+                <span asp-validation-for="PalletCount" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">ケース数 (1以上必要) <span class="text-danger">*</span></label>
+                <input type="number" asp-for="CaseCount" class="form-control bg-dark text-white border-secondary" min="1" required />
+                <span asp-validation-for="CaseCount" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label">ステータス <span class="text-danger">*</span></label>
+                <select asp-for="Status" class="form-select bg-dark text-white border-secondary" required>
+                    <option value="1">1: 予定</option>
+                    <option value="11">11: 確認済 (※自動で在庫データを生成します)</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">備考</label>
+                <textarea asp-for="Remarks" class="form-control bg-dark text-white border-secondary" rows="2"></textarea>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top border-secondary">
+            <a asp-action="List" class="btn btn-secondary px-4">キャンセル</a>
+            <button type="submit" class="btn btn-wms-primary px-5">登録実行</button>
+        </div>
+    </form>
+</div>
+
+<!-- Product Search Modal -->
+<div class="modal fade" id="productSearchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="bi bi-search me-2"></i>商品検索</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-3">
+                    <input type="text" id="searchKeyword" class="form-control bg-secondary text-white border-0" placeholder="商品ID・商品名・JANコード..." onkeyup="searchProducts()" />
+                    <button class="btn btn-primary" type="button" onclick="searchProducts()">検索</button>
+                </div>
+                <div class="table-responsive" style="max-height: 350px;">
+                    <table class="table table-wms">
+                        <thead>
+                            <tr>
+                                <th>商品ID</th>
+                                <th>商品名</th>
+                                <th>JANコード</th>
+                                <th>入数</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productSearchResult">
+                            <tr><td colspan="5" class="text-center text-secondary">検索ボタンを押してください。</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function searchProducts() {
+            var keyword = document.getElementById('searchKeyword').value;
+            fetch('/ProductMaster/SearchJson?term=' + encodeURIComponent(keyword))
+                .then(res => res.json())
+                .then(data => {
+                    var tbody = document.getElementById('productSearchResult');
+                    tbody.innerHTML = '';
+                    if (data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">該当する商品がありません。</td></tr>';
+                        return;
+                    }
+                    data.forEach(p => {
+                        var tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td><code>${p.productId}</code></td>
+                            <td>${p.productName}</td>
+                            <td>${p.janCode}</td>
+                            <td>${p.quantity}</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-wms-primary" onclick="selectProduct('${p.productId}', '${p.productName}')">選択</button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                });
+        }
+
+        function selectProduct(id, name) {
+            document.getElementById('txtProductId').value = id;
+            document.getElementById('lblProductName').value = name;
+            var modalEl = document.getElementById('productSearchModal');
+            var modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) modal.hide();
+        }
+    </script>
+}

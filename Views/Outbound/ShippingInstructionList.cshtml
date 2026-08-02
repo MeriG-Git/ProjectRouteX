@@ -1,0 +1,230 @@
+@model IEnumerable<RouteXWms.Models.ShippingInstructionItemViewModel>
+
+@{
+    ViewData["Title"] = "出荷指示一覧";
+    var pageIndex = ViewBag.Page as int? ?? 1;
+    var totalPages = ViewBag.TotalPages as int? ?? 1;
+    var pageSize = ViewBag.PageSize as int? ?? 10;
+    var searchGroup = ViewBag.SearchGroup as string;
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-2"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-2"></i> @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="wms-card mb-4">
+    <div class="wms-card-header d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <h2 class="wms-card-title mb-0">
+            <i class="bi bi-file-earmark-text text-primary me-2"></i>出荷指示一覧
+        </h2>
+        <div class="d-flex align-items-center gap-2">
+            <a asp-controller="Outbound" asp-action="ImportInstruction" class="btn btn-wms-primary btn-sm px-3">
+                <i class="bi bi-box-arrow-in-down me-1"></i> 新規出荷指示読込
+            </a>
+        </div>
+    </div>
+
+    <!-- 検索フォーム -->
+    <form method="get" asp-action="ShippingInstructionList" class="mb-4">
+        <div class="row g-2 align-items-center">
+            <div class="col-md-6 col-lg-4">
+                <div class="input-group">
+                    <span class="input-group-text bg-dark text-secondary border-secondary">
+                        <i class="bi bi-search"></i>
+                    </span>
+                    <input type="text" name="searchGroup" value="@searchGroup" class="form-control bg-dark text-white border-secondary" placeholder="出荷指示グループ / ファイル名で検索..." />
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-secondary btn-sm px-3">検索</button>
+                @if (!string.IsNullOrEmpty(searchGroup))
+                {
+                    <a asp-action="ShippingInstructionList" class="btn btn-outline-secondary btn-sm px-3">クリア</a>
+                }
+            </div>
+        </div>
+    </form>
+
+    <!-- テーブル表示 -->
+    <div class="table-responsive">
+        <table class="table table-dark table-hover align-middle border-secondary mb-0">
+            <thead>
+                <tr class="table-dark text-secondary" style="border-bottom: 2px solid #334155;">
+                    <th style="width: 140px;">取込日時</th>
+                    <th style="width: 220px;">出荷指示グループ</th>
+                    <th>元ファイル名</th>
+                    <th style="width: 150px;">荷主</th>
+                    <th style="width: 140px;">運送会社</th>
+                    <th style="width: 90px;" class="text-center">件数</th>
+                    <th style="width: 220px;">ステータス状況</th>
+                    <th style="width: 130px;" class="text-center">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr>
+                        <td colspan="8" class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                            該当する出荷指示データはありません。
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var item in Model)
+                    {
+                        <tr>
+                            <td>
+                                <span class="small text-secondary">
+                                    @(item.CreatedAt?.ToString("yyyy/MM/dd HH:mm") ?? "-")
+                                </span>
+                            </td>
+                            <td>
+                                <span class="font-monospace text-info font-weight-bold">
+                                    @item.ShippingInstructionGroup
+                                </span>
+                            </td>
+                            <td>
+                                <span class="text-truncate d-inline-block" style="max-width: 260px;" title="@item.FileName">
+                                    <i class="bi bi-file-earmark-excel text-success me-1"></i>
+                                    @(string.IsNullOrEmpty(item.FileName) ? "-" : item.FileName)
+                                </span>
+                            </td>
+                            <td>@item.ShipperName</td>
+                            <td>@item.CarrierName</td>
+                            <td class="text-center">
+                                <span class="badge bg-secondary px-2 fs-6">@item.ImportedCount 件</span>
+                            </td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-1 align-items-center">
+                                    @if (item.Status == 999)
+                                    {
+                                        <span class="badge bg-danger">
+                                            <i class="bi bi-x-circle me-1"></i>全取り消し済
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        @if (item.PendingCount > 0)
+                                        {
+                                            <span class="badge bg-warning text-dark" title="出荷倉庫確認待ち">確認中 @item.PendingCount</span>
+                                        }
+                                        @if (item.ConfirmedCount > 0)
+                                        {
+                                            <span class="badge bg-success" title="確認済（予定・送状出力など）">確認済 @item.ConfirmedCount</span>
+                                        }
+                                        @if (item.PriceNotFoundCount > 0)
+                                        {
+                                            <span class="badge bg-info text-dark" title="該当運賃表未登録">運賃無 @item.PriceNotFoundCount</span>
+                                        }
+                                        @if (item.OutOfStockCount > 0)
+                                        {
+                                            <span class="badge bg-danger" title="在庫不足">在庫切 @item.OutOfStockCount</span>
+                                        }
+                                    }
+                                </div>
+                            </td>
+                            <td class="text-center">
+                                <div class="d-flex gap-1 justify-content-center">
+                                    <a asp-action="ShippingInstructionDetail" asp-route-id="@item.ShippingInstructionId" class="btn btn-outline-info btn-sm">
+                                        <i class="bi bi-eye me-1"></i>明細
+                                    </a>
+                                    @if (item.Status != 999)
+                                    {
+                                        @if (item.CanCancel)
+                                        {
+                                            <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#cancelModal-@item.ShippingInstructionId">
+                                                <i class="bi bi-trash3 me-1"></i>全取り消し
+                                            </button>
+
+                                            <!-- モーダルダイアログ -->
+                                            <div class="modal fade text-start" id="cancelModal-@item.ShippingInstructionId" tabindex="-1" aria-hidden="true">
+                                                <div class="modal-dialog modal-dialog-centered">
+                                                    <div class="modal-content bg-dark text-white border-secondary">
+                                                        <div class="modal-header border-secondary">
+                                                            <h5 class="modal-title text-danger">
+                                                                <i class="bi bi-exclamation-triangle-fill me-2"></i>出荷指示の全取り消し確認
+                                                            </h5>
+                                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                                        </div>
+                                                        <div class="modal-body">
+                                                            <p class="mb-2 text-white">以下の出荷指示を<strong class="text-warning">全て取り消し</strong>ますか？</p>
+                                                            <div class="p-3 rounded border border-secondary mb-3" style="background-color: #0f172a;">
+                                                                <div class="mb-1"><span class="text-secondary">出荷指示グループ:</span> <span class="text-info font-monospace fw-bold ms-1">@item.ShippingInstructionGroup</span></div>
+                                                                <div class="mb-1"><span class="text-secondary">対象件数:</span> <span class="text-white fw-bold ms-1">@item.ImportedCount 件</span></div>
+                                                                <div><span class="text-secondary">荷主 / 運送会社:</span> <span class="text-white ms-1">@item.ShipperName / @item.CarrierName</span></div>
+                                                            </div>
+                                                            <div class="p-3 rounded small mb-0" style="background-color: rgba(234, 179, 8, 0.15); border: 1px solid #eab308; color: #fef08a;">
+                                                                <i class="bi bi-info-circle-fill me-1"></i>
+                                                                取り消しを実行すると、紐づく全出庫データが削除され、引き当てられた在庫が元の保管状態・数量に戻ります。
+                                                            </div>
+                                                        </div>
+                                                        <div class="modal-footer border-secondary">
+                                                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">閉じる</button>
+                                                            <form asp-action="CancelShippingInstruction" method="post" class="m-0">
+                                                                @Html.AntiForgeryToken()
+                                                                <input type="hidden" name="id" value="@item.ShippingInstructionId" />
+                                                                <button type="submit" class="btn btn-danger btn-sm px-4">
+                                                                    <i class="bi bi-trash3 me-1"></i> 実行する
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" disabled title="出荷指示内に確認済（予定など）の出庫データが含まれているため、取り消しできません。">
+                                                <i class="bi bi-slash-circle me-1"></i>取消不可
+                                            </button>
+                                        }
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ページネーション -->
+    @if (totalPages > 1)
+    {
+        <div class="d-flex justify-content-between align-items-center pt-3 border-top border-secondary mt-3">
+            <div class="text-muted small">
+                全 @totalPages ページ中 @pageIndex ページ目を表示
+            </div>
+            <nav aria-label="Page navigation">
+                <ul class="pagination pagination-sm m-0">
+                    <li class="page-item @(pageIndex <= 1 ? "disabled" : "")">
+                        <a class="page-link bg-dark text-white border-secondary" asp-action="ShippingInstructionList" asp-route-searchGroup="@searchGroup" asp-route-page="@(pageIndex - 1)">前へ</a>
+                    </li>
+                    @for (int p = 1; p <= totalPages; p++)
+                    {
+                        <li class="page-item @(p == pageIndex ? "active" : "")">
+                            <a class="page-link @(p == pageIndex ? "bg-primary border-primary text-white" : "bg-dark text-white border-secondary")" asp-action="ShippingInstructionList" asp-route-searchGroup="@searchGroup" asp-route-page="@p">@p</a>
+                        </li>
+                    }
+                    <li class="page-item @(pageIndex >= totalPages ? "disabled" : "")">
+                        <a class="page-link bg-dark text-white border-secondary" asp-action="ShippingInstructionList" asp-route-searchGroup="@searchGroup" asp-route-page="@(pageIndex + 1)">次へ</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    }
+</div>

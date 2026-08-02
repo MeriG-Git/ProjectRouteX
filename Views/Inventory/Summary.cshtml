@@ -1,0 +1,88 @@
+@model IEnumerable<RouteXWms.Controllers.InventorySummaryItem>
+@{
+    ViewData["Title"] = "在庫数集計";
+    var shippers = ViewBag.Shippers as IEnumerable<RouteXWms.Models.Shipper> ?? Enumerable.Empty<RouteXWms.Models.Shipper>();
+    var warehouses = ViewBag.Warehouses as IEnumerable<RouteXWms.Models.Warehouse> ?? Enumerable.Empty<RouteXWms.Models.Warehouse>();
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-calculator me-2 text-info"></i>倉庫別・商品別 在庫数集計</h2>
+        <a asp-action="List" class="btn btn-wms-secondary">
+            <i class="bi bi-list me-1"></i> 明細一覧を表示
+        </a>
+    </div>
+
+    <!-- Filters -->
+    <form method="get" asp-action="Summary" class="row g-3 mb-4 px-3 align-items-end">
+        <div class="col-md-3">
+            <label class="form-label small text-secondary">荷主</label>
+            <select name="shipperId" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <option value="">-- 全ての荷主 --</option>
+                @foreach (var s in shippers)
+                {
+                    <!option value="@s.ShipperId" @(ViewBag.SelectedShipper == s.ShipperId ? "selected" : "")>@s.ShipperName</!option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small text-secondary">倉庫</label>
+            <select name="warehouseId" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <option value="">-- 全ての倉庫 --</option>
+                @foreach (var w in warehouses)
+                {
+                    <!option value="@w.WarehouseId" @(ViewBag.SelectedWarehouse == w.WarehouseId ? "selected" : "")>@w.WarehouseName</!option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small text-secondary">商品コード</label>
+            <input type="text" name="productId" value="@ViewBag.ProductId" class="form-control bg-dark text-white border-secondary" placeholder="商品コードで絞り込み..." />
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-wms-secondary flex-fill">検索</button>
+            <a asp-action="Summary" class="btn btn-outline-secondary">クリア</a>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-wms">
+            <thead>
+                <tr>
+                    <th>倉庫名</th>
+                    <th>荷主名</th>
+                    <th>商品コード</th>
+                    <th>商品名</th>
+                    <th>利用可能在庫</th>
+                    <th>利用可能部数</th>
+                    <th>引当済ケース</th>
+                    <th>合計ケース数</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr>
+                        <td colspan="8" class="text-center text-secondary py-4">在庫データが存在しません。</td>
+                    </tr>
+                }
+                else
+                {
+                    foreach (var item in Model)
+                    {
+                        <tr>
+                            <td class="fw-semibold text-info">@item.WarehouseName</td>
+                            <td>@item.ShipperName</td>
+                            <td><code>@item.ProductId</code></td>
+                            <td class="fw-bold">@item.ProductName</td>
+                            <td class="fw-bold fs-6 text-success">@item.InStockCount 箱</td>
+                            <td class="fw-bold fs-6 text-success">@item.InStockPieces.ToString("N0") 部</td>
+                            <td class="fw-bold text-warning">@item.ReservedCount 箱</td>
+                            <td class="fw-bold fs-6 text-primary">@item.TotalCount 箱</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

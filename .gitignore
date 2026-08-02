@@ -1,0 +1,47 @@
+# .gitignore for RouteXWms (YK特化WMS開発)
+
+# Build and Output Directories
+bin/
+obj/
+temp_bin/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio / VS Code / IDE Files
+.vs/
+.vscode/
+.idea/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.userprefs
+
+# Database / Local Test Data
+*.db
+*.db-shm
+*.db-wal
+RouteXWms.db
+
+# AI Agents & Conversation Logs / Cache
+*.pb
+.gemini/
+*.log
+
+# Python / Environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+
+# Node modules (if any front-end build tools added later)
+node_modules/
+
+# OS Specific Files
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,0 +1,105 @@
+﻿@model RouteXWms.Controllers.FreightDetailViewModel
+@{
+    ViewData["Title"] = "運賃計算根拠（適用マスタ結合）詳細";
+}
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0 text-white"><i class="bi bi-calculator me-2 text-warning"></i>運賃計算根拠（適用マスタ結合）詳細</h1>
+        <button onclick="window.close();" class="btn btn-outline-light btn-sm"><i class="bi bi-x-lg me-1"></i>閉じる</button>
+    </div>
+
+    <div class="row">
+        <!-- 条件カード -->
+        <div class="col-md-6 mb-4">
+            <div class="wms-card h-100">
+                <div class="wms-card-header bg-dark-subtle border-bottom border-secondary">
+                    <h5 class="wms-card-title mb-0 text-white"><i class="bi bi-info-circle me-2 text-warning"></i>出庫指示・計算条件</h5>
+                </div>
+                <div class="p-4">
+                    <table class="table table-borderless text-white mb-0 align-middle">
+                        <tbody>
+                            <tr>
+                                <td class="text-secondary" style="width: 35%;">出荷倉庫</td>
+                                <td class="fw-semibold">@Model.Warehouse.WarehouseName</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">お届け先郵便番号</td>
+                                <td><code>@Model.Outbound.ZipCode</code></td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">市区町村コード</td>
+                                <td><code>@Model.CityCode</code></td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">商品コード / 重量</td>
+                                <td>@Model.Outbound.ProductId / @Model.Outbound.Product?.ProductName</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">出庫個数 (箱数)</td>
+                                <td class="fw-bold fs-5 text-warning">@Model.Outbound.CaseCount 箱</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">運送会社</td>
+                                <td>@Model.Outbound.Carrier?.CarrierName</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 結合マスタ詳細カード -->
+        <div class="col-md-6 mb-4">
+            <div class="wms-card h-100">
+                <div class="wms-card-header bg-dark-subtle border-bottom border-secondary">
+                    <h5 class="wms-card-title mb-0 text-white"><i class="bi bi-database me-2 text-warning"></i>マスタ結合データ (該当行)</h5>
+                </div>
+                <div class="p-4">
+                    <div class="alert alert-info bg-opacity-10 border-info text-info mb-4" role="alert">
+                        <i class="bi bi-link-45deg me-1"></i> 輸送距離マスタ(m_distance) と 輸送運賃マスタ(m_distance_freight) の結合レコードです。
+                    </div>
+                    
+                    <table class="table table-borderless text-white mb-0 align-middle">
+                        <tbody>
+                            <tr>
+                                <td class="text-secondary" style="width: 45%;">料金表名 (RateName)</td>
+                                <td class="fw-semibold">@Model.DistanceFreight.FreightTable?.RateName</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">実際の配送距離 (m_distance)</td>
+                                <td class="fw-bold text-success fs-5">
+                                    @(Model.ActualDistanceKm.HasValue ? $"{Model.ActualDistanceKm.Value:N0} km" : "距離設定なし")
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">適用運賃サイズ (m_distance_freight)</td>
+                                <td class="fw-bold">@Model.DistanceFreight.Size kg</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">適用距離ランク上限 (m_distance_freight)</td>
+                                <td>@Model.DistanceFreight.DistanceKm km以下</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">単価売価 (Price)</td>
+                                <td class="fw-bold fs-4 text-warning">¥@Model.DistanceFreight.Price.ToString("N0")</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary">単価原価 (Cost)</td>
+                                <td class="fw-bold fs-4 text-light">¥@Model.DistanceFreight.Cost.ToString("N0")</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- アクションエリア -->
+    <div class="d-flex justify-content-end gap-3 mt-2">
+        <a href="/DistanceFreightMaster/Index?distanceRateId=@Model.DistanceFreight.FreightTableId&openId=@Model.DistanceFreight.FreightId" target="_blank" class="btn btn-wms-primary">
+            <i class="bi bi-pencil-square me-1"></i> この運賃定義を編集する (マスタ画面へ)
+        </a>
+        <button onclick="window.close();" class="btn btn-secondary px-4">閉じる</button>
+    </div>
+</div>

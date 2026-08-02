@@ -1,0 +1,128 @@
+@model IEnumerable<RouteXWms.Models.Inventory>
+@{
+    ViewData["Title"] = "在庫一覧";
+    int page = ViewBag.Page ?? 1;
+    int pageSize = ViewBag.PageSize ?? 10;
+    int totalPages = ViewBag.TotalPages ?? 1;
+    var shippers = ViewBag.Shippers as IEnumerable<RouteXWms.Models.Shipper> ?? Enumerable.Empty<RouteXWms.Models.Shipper>();
+    var warehouses = ViewBag.Warehouses as IEnumerable<RouteXWms.Models.Warehouse> ?? Enumerable.Empty<RouteXWms.Models.Warehouse>();
+}
+
+<div class="wms-card">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-boxes me-2 text-purple" style="color: #c084fc;"></i>在庫一覧</h2>
+    </div>
+
+    <!-- Filters -->
+    <form method="get" asp-action="List" class="row g-3 mb-4">
+        <div class="col-md-2">
+            <label class="form-label small text-secondary">荷主</label>
+            <select name="shipperId" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <option value="">-- 全ての荷主 --</option>
+                @foreach (var s in shippers)
+                {
+                    <!option value="@s.ShipperId" @(ViewBag.SelectedShipper == s.ShipperId ? "selected" : "")>@s.ShipperName</!option>
+                }
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small text-secondary">倉庫</label>
+            <select name="warehouseId" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <option value="">-- 全ての倉庫 --</option>
+                @foreach (var w in warehouses)
+                {
+                    <!option value="@w.WarehouseId" @(ViewBag.SelectedWarehouse == w.WarehouseId ? "selected" : "")>@w.WarehouseName</!option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small text-secondary">商品コード</label>
+            <input type="text" name="productId" value="@ViewBag.ProductId" class="form-control bg-dark text-white border-secondary" placeholder="商品コードで検索..." />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small text-secondary">ステータス</label>
+            <select name="status" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <option value="">-- 全て --</option>
+                <!option value="1" @(ViewBag.Status == 1 ? "selected" : "")>1: 在庫</!option>
+                <!option value="11" @(ViewBag.Status == 11 ? "selected" : "")>11: 引当</!option>
+                <!option value="21" @(ViewBag.Status == 21 ? "selected" : "")>21: 出庫</!option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small text-secondary">表示件数</label>
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <button type="submit" class="btn btn-wms-secondary w-100">検索</button>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-wms">
+            <thead>
+                <tr>
+                    <th>保管倉庫</th>
+                    <th>荷主</th>
+                    <th>商品コード / 商品名</th>
+                    <th>箱種別 / 残数</th>
+                    <th>入庫実績日</th>
+                    <th>出庫予定日</th>
+                    <th>出庫実績日</th>
+                    <th>ステータス</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr>
+                        <td colspan="8" class="text-center text-secondary py-4">該当する在庫データが存在しません。</td>
+                    </tr>
+                }
+                else
+                {
+                    foreach (var item in Model)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@(item.Warehouse?.WarehouseName ?? "-")</td>
+                            <td>@(item.Shipper?.ShipperName ?? "-")</td>
+                            <td>
+                                <div class="fw-bold">@item.ProductId</div>
+                                <div class="small text-secondary">@(item.Product?.ProductName ?? "-")</div>
+                            </td>
+                            <td>
+                                @if (item.IsLoose)
+                                {
+                                    <span class="badge bg-info text-dark me-1">バラ箱</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary me-1">未開封</span>
+                                }
+                                <span class="fw-bold">@item.CurrentQuantity</span> <span class="small text-secondary">/ @(item.Product?.Quantity ?? 1)部</span>
+                            </td>
+                            <td>@item.ActualInboundDate?.ToString("yyyy-MM-dd")</td>
+                            <td>@(item.ScheduledOutboundDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                            <td>@(item.ActualOutboundDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                            <td>
+                                @switch (item.Status)
+                                {
+                                    case 1: <span class="badge bg-success">1: 在庫</span> break;
+                                    case 11: <span class="badge bg-warning text-dark">11: 引当</span> break;
+                                    case 21: <span class="badge bg-primary">21: 出庫</span> break;
+                                    default: <span class="badge bg-secondary">@item.Status</span> break;
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <partial name="_Pagination" />
+</div>

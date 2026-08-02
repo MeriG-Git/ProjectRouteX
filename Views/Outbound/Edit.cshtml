@@ -1,0 +1,238 @@
+@model RouteXWms.Models.Outbound
+@{
+    ViewData["Title"] = "出庫データ編集";
+    var warehouses = ViewBag.Warehouses as IEnumerable<RouteXWms.Models.Warehouse> ?? Enumerable.Empty<RouteXWms.Models.Warehouse>();
+    var carriers = ViewBag.Carriers as IEnumerable<RouteXWms.Models.Carrier> ?? Enumerable.Empty<RouteXWms.Models.Carrier>();
+    var shippingClasses = ViewBag.ShippingClasses as IEnumerable<RouteXWms.Models.ShippingClass> ?? Enumerable.Empty<RouteXWms.Models.ShippingClass>();
+}
+
+<div class="wms-card" style="max-width: 960px; margin: 0 auto;">
+    <div class="wms-card-header">
+        <h2 class="wms-card-title">
+            <i class="bi bi-pencil-square me-2 text-warning"></i>出庫データ編集
+        </h2>
+    </div>
+
+    <form asp-action="Edit" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="OutboundId" />
+        <input type="hidden" asp-for="ShipperId" />
+        <input type="hidden" asp-for="ProductId" />
+        <input type="hidden" asp-for="ShippingInstructionGroup" />
+
+        <div class="alert alert-info py-2 small mb-4">
+            <i class="bi bi-info-circle me-1"></i> <strong>出荷グループ:</strong> @Model.ShippingInstructionGroup | <strong>荷主:</strong> @(Model.Shipper?.ShipperName ?? "-") | <strong>商品:</strong> @Model.ProductId - @(Model.Product?.ProductName ?? "-") | <strong>出庫数量:</strong> <span class="text-warning fw-bold">@Model.CaseCount 箱 (@Model.TotalPieces 部)</span>
+        </div>
+
+        <!-- Section: Basic Settings -->
+        <h4 class="border-bottom border-secondary pb-2 mb-3"><i class="bi bi-gear me-1"></i> 基本設定</h4>
+        
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <label class="form-label">出荷倉庫</label>
+                <select asp-for="WarehouseId" class="form-select bg-dark text-white border-secondary">
+                    <option value="">-- 未定 (在庫切れ) --</option>
+                    @foreach (var w in warehouses)
+                    {
+                        <option value="@w.WarehouseId">@w.WarehouseName</option>
+                    }
+                </select>
+                <span asp-validation-for="WarehouseId" class="text-danger small"></span>
+            </div>
+            
+            <div class="col-md-4">
+                <label class="form-label">運送会社</label>
+                <select asp-for="CarrierId" class="form-select bg-dark text-white border-secondary" required id="selectCarrier">
+                    @foreach (var c in carriers)
+                    {
+                        <option value="@c.CarrierId">@c.CarrierName</option>
+                    }
+                </select>
+                <span asp-validation-for="CarrierId" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">ステータス <span class="text-danger">*</span></label>
+                <select asp-for="Status" class="form-select bg-dark text-white border-secondary" required>
+                    <option value="1">1: 確認中</option>
+                    <option value="11">11: 予定</option>
+                    <option value="21">21: 送状出力</option>
+                    <option value="31">31: 請求済</option>
+                    <option value="801">801: 該当料金無し</option>
+                    <option value="999">999: 在庫切れ</option>
+                </select>
+                <span asp-validation-for="Status" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <!-- Section: Outbound / Freight Settings -->
+        <h4 class="border-bottom border-secondary pb-2 mb-3"><i class="bi bi-truck me-1"></i> 出庫・配送・料金設定</h4>
+        
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <label class="form-label">出庫予定日</label>
+                <input asp-for="ScheduledOutboundDate" type="date" class="form-control bg-dark text-white border-secondary" value="@(Model.ScheduledOutboundDate?.ToString("yyyy-MM-dd"))" />
+                <span asp-validation-for="ScheduledOutboundDate" class="text-danger small"></span>
+            </div>
+            
+            <div class="col-md-4">
+                <label class="form-label">箱数 / 部数 <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <input asp-for="CaseCount" type="number" min="1" class="form-control bg-dark text-white border-secondary" required placeholder="箱数" />
+                    <span class="input-group-text bg-dark border-secondary text-secondary">箱</span>
+                    <input asp-for="TotalPieces" type="number" min="1" class="form-control bg-dark text-white border-secondary" required placeholder="部数" />
+                    <span class="input-group-text bg-dark border-secondary text-secondary">部</span>
+                </div>
+                <span asp-validation-for="CaseCount" class="text-danger small"></span>
+                <span asp-validation-for="TotalPieces" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">出庫重量 (kg)</label>
+                <input asp-for="OutboundWeight" type="number" min="0" class="form-control bg-dark text-white border-secondary" />
+                <span asp-validation-for="OutboundWeight" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <label class="form-label">出庫区分 (出庫種別)</label>
+                <select asp-for="ShippingType" class="form-select bg-dark text-white border-secondary" required id="selectShippingType">
+                    @foreach (var s in shippingClasses)
+                    {
+                        <option value="@s.ShippingClassId" data-carrier="@s.CarrierId">@s.ClassName</option>
+                    }
+                </select>
+                <span asp-validation-for="ShippingType" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">荷送人コード</label>
+                <input asp-for="SenderCode" type="text" class="form-control bg-dark text-white border-secondary" maxlength="12" />
+                <span asp-validation-for="SenderCode" class="text-danger small"></span>
+            </div>
+            
+            <div class="col-md-3">
+                <label class="form-label">適用運賃 (料金)</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-dark border-secondary text-secondary">¥</span>
+                    <input asp-for="Price" type="number" min="0" step="1" class="form-control bg-dark text-white border-secondary" placeholder="自動計算値または直接入力" />
+                </div>
+                <span asp-validation-for="Price" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">配達指定時間帯 (区分)</label>
+                <input asp-for="DeliveryTimeClass" type="number" class="form-control bg-dark text-white border-secondary" />
+                <span asp-validation-for="DeliveryTimeClass" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <!-- Section: Recipient Details -->
+        <h4 class="border-bottom border-secondary pb-2 mb-3"><i class="bi bi-geo-alt me-1"></i> お届け先情報</h4>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <label class="form-label">納品先コード</label>
+                <input asp-for="RecipientCode" type="text" class="form-control bg-dark text-white border-secondary" maxlength="32" />
+                <span asp-validation-for="RecipientCode" class="text-danger small"></span>
+            </div>
+            
+            <div class="col-md-3">
+                <label class="form-label">郵便番号</label>
+                <input asp-for="ZipCode" type="text" class="form-control bg-dark text-white border-secondary" maxlength="7" placeholder="ハイフンなし7桁" />
+                <span asp-validation-for="ZipCode" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">電話番号</label>
+                <input asp-for="Tel" type="tel" class="form-control bg-dark text-white border-secondary" maxlength="16" />
+                <span asp-validation-for="Tel" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">住所 1</label>
+                <input asp-for="Address1" type="text" class="form-control bg-dark text-white border-secondary" maxlength="64" />
+                <span asp-validation-for="Address1" class="text-danger small"></span>
+            </div>
+            
+            <div class="col-md-4">
+                <label class="form-label">住所 2</label>
+                <input asp-for="Address2" type="text" class="form-control bg-dark text-white border-secondary" maxlength="64" />
+                <span asp-validation-for="Address2" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">住所 3</label>
+                <input asp-for="Address3" type="text" class="form-control bg-dark text-white border-secondary" maxlength="64" />
+                <span asp-validation-for="Address3" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">会社名 1 (荷受人1)</label>
+                <input asp-for="CompanyName1" type="text" class="form-control bg-dark text-white border-secondary" maxlength="64" />
+                <span asp-validation-for="CompanyName1" class="text-danger small"></span>
+            </div>
+            
+            <div class="col-md-4">
+                <label class="form-label">会社名 2 (荷受人2)</label>
+                <input asp-for="CompanyName2" type="text" class="form-control bg-dark text-white border-secondary" maxlength="64" />
+                <span asp-validation-for="CompanyName2" class="text-danger small"></span>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">氏名 (納品先名)</label>
+                <input asp-for="RecipientName" type="text" class="form-control bg-dark text-white border-secondary" maxlength="64" />
+                <span asp-validation-for="RecipientName" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label">備考 / メモ</label>
+            <textarea asp-for="Notes" class="form-control bg-dark text-white border-secondary" rows="2" maxlength="500"></textarea>
+            <span asp-validation-for="Notes" class="text-danger small"></span>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+            <a asp-action="ConfirmWarehouse" class="btn btn-outline-secondary px-4">キャンセル</a>
+            <button type="submit" class="btn btn-wms-primary px-4">保存する</button>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const selectCarrier = document.getElementById('selectCarrier');
+            const selectShippingType = document.getElementById('selectShippingType');
+
+            function filterShippingTypes() {
+                const carrierId = selectCarrier.value;
+                let firstVisible = null;
+
+                Array.from(selectShippingType.options).forEach(opt => {
+                    const optCarrier = opt.getAttribute('data-carrier');
+                    if (optCarrier === carrierId) {
+                        opt.style.display = '';
+                        if (!firstVisible) firstVisible = opt.value;
+                    } else {
+                        opt.style.display = 'none';
+                    }
+                });
+
+                // If current selected value is hidden, select the first visible
+                const currentOpt = selectShippingType.options[selectShippingType.selectedIndex];
+                if (currentOpt && currentOpt.style.display === 'none' && firstVisible) {
+                    selectShippingType.value = firstVisible;
+                }
+            }
+
+            selectCarrier.addEventListener('change', filterShippingTypes);
+            filterShippingTypes();
+        });
+    </script>
+}
