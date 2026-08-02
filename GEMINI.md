@@ -60,7 +60,7 @@
   - **【構築完了】SQL Server 2025 Standard Developer Edition 導入成功**:
     1. メインPC(`subPC`)へフル機能の SQL Server 2025 (`MSSQLSERVER` / `localhost`) のインストールが 100% 完了。
     2. データベース `RouteXWmsDb` および専用 SQL 認証ユーザー `routex_user`（パスワード: `RouteX1234!`、`CHECK_POLICY = OFF`）の作成・`db_owner` 権限付与を正常完了。
-    3. 混合モード認証 (LoginMode = 2) のレジストリ適用を完了。サービス再起動後に外部端末（192.168.40.7）からのダイレクト SQL 認証が完全に利用可能となります。
+    3. 混合モード認証 (LoginMode = 2) のレジストリ適用を完了。**【必須】SQL Server サービス（MSSQLSERVER）の再起動（`Restart-Service MSSQLSERVER`）が必要です。**
     4. 確定接続文字列 (Server=192.168.40.7):
        `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;TrustServerCertificate=True;MultipleActiveResultSets=true;`
 
