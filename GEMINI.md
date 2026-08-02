@@ -1,6 +1,6 @@
 # ProjectRouteX (ヤマキ物産特化型WMS) プロジェクト知識ベース (GEMINI.md)
 
-本ファイルは、複数PC間およびAIエージェント間でプロジェクトの前提知識・アーキテクチャ・決定事項を完璧に同期・維持するための共有ナレッジベースです。
+本ファイルは、複数PC間およびAIエージェント間でプロジェクトの前提知識・アーキテクチャ・決定事項を同期・維持するための共有ナレッジベースです。
 
 ---
 
@@ -13,21 +13,18 @@
 
 ---
 
-## 2. 技術スタック
+## 2. 技術スタック & RDBMS 運用方針
 
 - **バックエンド / Web**: .NET 9.0 (ASP.NET Core MVC)
-- **ORM / DBアクセス**: Entity Framework Core 9.0
-- **標準 RDBMS (データベース)**:
-  - **メイン RDBMS**: **Microsoft SQL Server / Azure SQL Database**
+- **ORM / DBアクセス**: Entity Framework Core 9.0 (SQL Server プロバイダー)
+- **【必須】RDBMS (データベース)**: **Microsoft SQL Server (必須・厳守)**
   - **メインPC (DBサーバー)**: ホスト名 `subPC` / IP `192.168.40.7`
   - **データベース名**: `RouteXWmsDb`
-  - **接続方式**: Windows統合認証 (`Trusted_Connection=True;TrustServerCertificate=True;`)
-  - ※補助開発・ローカル検証用として SQLite (`RouteXWms.db`) にもデュアル対応可能。
+  - **接続方式**: Windows統合認証 (`Trusted_Connection=True;TrustServerCertificate=True;`) または SQL Server 認証
+  - **原則**: **SQLite への切り替えやフォールバックは禁止。全PCから SQL Server に接続を統一すること。**
 - **主要ライブラリ**:
   - `MiniExcel` (v1.44.1) : Excel入出力処理
-  - `Microsoft.EntityFrameworkCore.SqlServer` / `Sqlite`
-- **スクリプト・ツール**:
-  - Python (`generate_presentation.py`, `generate_csv.py`) : プレゼン資料作成・ダミーデータ生成用
+  - `Microsoft.EntityFrameworkCore.SqlServer`
 
 ---
 
@@ -35,9 +32,9 @@
 
 1. **言語設定**:
    - 会話・回答、コードコメント、ドキュメント作成はすべて**日本語**を標準とする。
-2. **データベース接続ルール (SQL Server 標準)**:
-   - `appsettings.json` の `DatabaseProvider` を `"SqlServer"` に設定する。
-   - 他PCからLAN経由でメインPC(`subPC`)のDBに接続する場合は、接続文字列 `DefaultConnection` の Server に `subPC` または `192.168.40.7` を指定する。
+2. **データベース接続ルール (SQL Server 必須)**:
+   - `appsettings.json` の `DatabaseProvider` は常に `"SqlServer"` とする。
+   - 他PCからLAN経由でメインPC(`subPC`)のDBに接続する場合は、接続文字列 `DefaultConnection` または `LanSqlServerConnection` の Server に `subPC` または `192.168.40.7` を指定する。
    - アプリ初回起動時に `DbInitializer.Initialize()` が自動実行され、`RouteXWmsDb` が未作成の場合はテーブルおよび初期マスターデータ（管理者ユーザー含む）が自動生成される。
 3. **セキュリティ & 権限**:
    - テスト用ログイン機能および認証フィルター (`Filters/AuthFilter.cs`) を搭載。
@@ -58,4 +55,4 @@
   - リポジトリ初期化および `GEMINI.md` / `.gitignore` の整備実施。
   - GitHub リモート (`https://github.com/MeriG-Git/ProjectRouteX.git`) との連携完了。
   - プロジェクト名およびフォルダ名を `ProjectRouteX` に正式変更。
-  - RDBMS を **SQL Server (`subPC` / `RouteXWmsDb`)** に標準化し、接続設定およびナレッジベース(`GEMINI.md`)を最新同期。
+  - **RDBMS を SQL Server (`subPC` / `RouteXWmsDb`) に完全統一**。SQLite へのフォールバックを禁止し、SQL Server 接続を必須化。
