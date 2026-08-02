@@ -81,6 +81,7 @@
 >    - SQL ユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を作成し、`RouteXWmsDb` に対する `db_owner` 権限を付与。
 > 4. **ネットワークプロトコル・ファィアウォール許可**:
 >    - SQL Server の TCP/IP プロトコル（ポート `1433`）および SQL Server Browser サービスを有効化。
->    - Windows ファイアウォールで TCP 1433 ポートの受信を許可。
->
-> 設定完了後、本ファイル `GEMINI.md` の「5. 開発ロードマップ & 決定事項履歴」に結果を記録してください。
+> 5. **【追記リクエスト】Error 1326 ログイン認証エラーの調査・再設定**:
+>    - 外部PCから `Server=192.168.40.7;Database=RouteXWmsDb;User Id=merit.og@gmail.com;Password=!4K7o3n3;...` で接続すると、ネットワーク疎通は完了しますが SQL Server 側で `Error 1326: ユーザー名またはパスワードが正しくありません` が発生します。
+>    - ユーザー名に `@` 記号が含まれることが原因の可能性があるため、シンプルなSQLユーザー名（例: `routex_user` / パスワード: `RouteX1234!`）を新規作成し、`RouteXWmsDb` の `db_owner` 権限を付与してください。
+>    - または、`subPC` 上で実際のリモート接続用 `appsettings.json` の動作確認済み接続文字列をアップデートしてください。
