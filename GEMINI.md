@@ -59,10 +59,10 @@
   - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
   - **【エージェント連携完了】SQL Server 接続構築完了**:
     1. データベース `RouteXWmsDb` の存在およびスキーマ準備を正常確認。
-    2. SQL 認証ログインユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を新規作成し、`RouteXWmsDb` データベースに対する `db_owner` 権限を正常付与完了。
-    3. 別PC（他端末）からの SQL 認証接続文字列:
-       `Server=subPC;Database=RouteXWmsDb;User Id=merit.og@gmail.com;Password=!4K7o3n3;TrustServerCertificate=True;`
-       （または `Server=192.168.40.7;Database=RouteXWmsDb;User Id=merit.og@gmail.com;Password=!4K7o3n3;TrustServerCertificate=True;`）
+    2. SQL 認証ログインユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を新規作成し、`CHECK_POLICY = OFF`, `CHECK_EXPIRATION = OFF` の無効化設定および `db_owner` 権限を正常適用。
+    3. 別PC（他端末）からの検証済み接続文字列 (Server=192.168.40.7):
+       `Server=192.168.40.7;Database=RouteXWmsDb;User Id=merit.og@gmail.com;Password=!4K7o3n3;TrustServerCertificate=True;`
+
 
 
 ---
