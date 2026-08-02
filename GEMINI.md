@@ -81,7 +81,6 @@
 >    - SQL ユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を作成し、`RouteXWmsDb` に対する `db_owner` 権限を付与。
 > 4. **ネットワークプロトコル・ファィアウォール許可**:
 >    - SQL Server の TCP/IP プロトコル（ポート `1433`）および SQL Server Browser サービスを有効化。
-> 5. **【追記リクエスト】Error 1326 ログイン認証エラー（MSSQLSERVER サービス再起動の依頼）**:
->    - 外部PCから `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;...` で接続すると、ネットワークTCP疎通は100%成功しますが、SQL Server 側で依然として `Error 1326: ユーザー名またはパスワードが正しくありません` が発生します。
->    - SQL Server の認証モードを「混合モード」に変更した後、**SQL Server サービス（MSSQLSERVER）を再起動しないと SQL 認証アカウントが有効化されません**。
->    - `subPC` 上で Administrator 権限の PowerShell から `Restart-Service MSSQLSERVER` または SQL Server Configuration Manager から SQL Server サービスを再起動してください。
+> 5. **【追記リクエスト】TCP 1433 ポート有効化とファィアウォール許可**:
+>    - 外部PCから SQL Server に接続を試みると、Named Pipes では Error 5 (アクセス拒否)、TCP 1433 ではタイムアウトとなります。
+>    - SQL Server Configuration Manager (または PowerShell) にて `MSSQLSERVER` の `TCP/IP` プロトコルを「有効」にし、`IPAll` の TCP ポートを `1433` に設定した上、Windows ファイアウォールで TCP 1433 の受信許可ルールを作成し、`Restart-Service MSSQLSERVER` を実行してください。
