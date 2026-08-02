@@ -1,4 +1,4 @@
-# RouteXWms (ヤマキ物産特化型WMS) プロジェクト知識ベース (GEMINI.md)
+# ProjectRouteX (ヤマキ物産特化型WMS) プロジェクト知識ベース (GEMINI.md)
 
 本ファイルは、複数PC間およびAIエージェント間でプロジェクトの前提知識・決定事項を共有・維持するためのナレッジ同期ファイルです。
 
@@ -6,7 +6,8 @@
 
 ## 1. プロジェクト概要
 
-- **名称**: RouteXWms (YK特化WMS開発)
+- **名称**: ProjectRouteX (ヤマキ物産特化型WMS)
+- **フォルダ名**: `ProjectRouteX` (旧 `YK特化WMS開発` から変更)
 - **目的**: ヤマキ物産様に特化した倉庫管理システム（WMS）の開発。入荷、出荷、在庫管理、棚卸、マスタ管理等の業務をデジタル化・効率化する。
 - **リポジトリ**: `https://github.com/MeriG-Git/ProjectRouteX.git`
 
@@ -53,3 +54,5 @@
   - リポジトリ初期化および `GEMINI.md` / `.gitignore` の整備実施。
   - GitHub リモート (`https://github.com/MeriG-Git/ProjectRouteX.git`) との連携完了。
   - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
+  - プロジェクト名およびフォルダ名を `ProjectRouteX` に変更し、ナレッジベース(`GEMINI.md`)を自動更新。
+
