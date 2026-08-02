@@ -57,16 +57,9 @@
   - プロジェクト名およびフォルダ名を `ProjectRouteX` に正式変更。
   - **RDBMS を SQL Server (`subPC` / `RouteXWmsDb`) に完全統一**。SQLite へのフォールバックを禁止し、SQL Server 接続を必須化。
   - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
-  - **【エージェント連携完了】SQL Server 接続構築完了 (専用ユーザー routex_user 移行 & サービス再起動完了)**:
-    1. データベース `RouteXWmsDb` の存在およびスキーマ準備を正常確認。
-    2. 新規専用 SQL 認証ユーザー `routex_user`（パスワード: `RouteX1234!`）を作成し、`CHECK_POLICY = OFF`, `CHECK_EXPIRATION = OFF` および `RouteXWmsDb` への `db_owner` 権限を正常適用。
-    3. **【注意・修正点】**: `sqllocaldb` (LocalDB) はリモートネットワーク接続および SQL 認証を受け付けません。LAN経由の外部アクセスには本物の Windows SQL Server サービス (`MSSQLSERVER` または `SQLEXPRESS`) に対するアカウント作成およびサービス再起動 (`Restart-Service MSSQLSERVER`) が必要です。
-    4. 別PC（他端末）からの確定接続文字列 (Server=192.168.40.7):
-       `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;TrustServerCertificate=True;MultipleActiveResultSets=true;`
-
-
-
-
+  - **【エージェント連携状況】SQL Server 本サービス (MSSQLSERVER/SQLEXPRESS) の導入・構築準備**:
+    1. 他端末（別PC）からの LAN 接続および SQL 認証 (`routex_user` / `RouteX1234!`) を解放するため、本PC(`subPC`)へフル機能の SQL Server サービス (SQL Server Express) を導入準備中。
+    2. インストール完了後、`localhost` (192.168.40.7) の SQL Server サービス上で `routex_user` を適用し、`Restart-Service` を実行予定。
 
 ---
 
