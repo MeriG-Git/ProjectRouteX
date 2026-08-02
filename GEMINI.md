@@ -32,8 +32,14 @@
 
 1. **言語設定**:
    - 会話・回答、コードコメント、ドキュメント作成はすべて**日本語**を標準とする。
-2. **データベース運用の原則**:
+2. **データベース運用の原則 & LAN共有**:
    - 開発初期・ローカルテストでは SQLite を使用。
+   - **LAN内共有接続（別PCからメインPC `subPC` のDBへ接続する場合）**:
+     - メインPC ホスト名: `subPC` / IPv4: `192.168.40.7`
+     - 別PCの `appsettings.json` で `SqliteConnection` を以下のように指定することで、このPCのDBを直接参照・編集可能です。
+       ```json
+       "SqliteConnection": "Data Source=\\\\subPC\\ProjectRouteX\\RouteXWms.db"
+       ```
    - スキーマ変更時は Entity Framework Core Migration を活用し、将来の Azure SQL 移行に備えた設計を維持する。
 3. **セキュリティ & 権限**:
    - テスト用ログイン機能および認証フィルター (`Filters/`) を搭載。
@@ -55,4 +61,6 @@
   - GitHub リモート (`https://github.com/MeriG-Git/ProjectRouteX.git`) との連携完了。
   - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
   - プロジェクト名およびフォルダ名を `ProjectRouteX` に変更し、ナレッジベース(`GEMINI.md`)を自動更新。
+  - LAN内DB共有設定（メインPC `subPC` / `192.168.40.7`）を追加し、`appsettings.json` および `GEMINI.md` を更新・Git送信。
+
 
