@@ -57,11 +57,13 @@
   - プロジェクト名およびフォルダ名を `ProjectRouteX` に正式変更。
   - **RDBMS を SQL Server (`subPC` / `RouteXWmsDb`) に完全統一**。SQLite へのフォールバックを禁止し、SQL Server 接続を必須化。
   - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
-  - **【エージェント連携完了】SQL Server 接続構築完了**:
+  - **【エージェント連携完了】SQL Server 接続構築完了 (専用ユーザー routex_user 移行)**:
     1. データベース `RouteXWmsDb` の存在およびスキーマ準備を正常確認。
-    2. SQL 認証ログインユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を新規作成し、`CHECK_POLICY = OFF`, `CHECK_EXPIRATION = OFF` の無効化設定および `db_owner` 権限を正常適用。
-    3. 別PC（他端末）からの検証済み接続文字列 (Server=192.168.40.7):
-       `Server=192.168.40.7;Database=RouteXWmsDb;User Id=merit.og@gmail.com;Password=!4K7o3n3;TrustServerCertificate=True;`
+    2. 新規専用 SQL 認証ユーザー `routex_user`（パスワード: `RouteX1234!`）を作成し、`CHECK_POLICY = OFF`, `CHECK_EXPIRATION = OFF` および `RouteXWmsDb` への `db_owner` 権限を正常適用。
+    3. `routex_user` による SQL 認証ログイン疎通テストに 100% 成功。
+    4. 別PC（他端末）からの確定接続文字列 (Server=192.168.40.7):
+       `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;TrustServerCertificate=True;MultipleActiveResultSets=true;`
+
 
 
 
