@@ -1,13 +1,13 @@
 # ProjectRouteX (ヤマキ物産特化型WMS) プロジェクト知識ベース (GEMINI.md)
 
-本ファイルは、複数PC間およびAIエージェント間でプロジェクトの前提知識・決定事項を共有・維持するためのナレッジ同期ファイルです。
+本ファイルは、複数PC間およびAIエージェント間でプロジェクトの前提知識・アーキテクチャ・決定事項を完璧に同期・維持するための共有ナレッジベースです。
 
 ---
 
 ## 1. プロジェクト概要
 
-- **名称**: ProjectRouteX (ヤマキ物産特化型WMS)
-- **フォルダ名**: `ProjectRouteX` (旧 `YK特化WMS開発` から変更)
+- **プロジェクト名**: ProjectRouteX (ヤマキ物産特化型WMS)
+- **フォルダ名**: `ProjectRouteX`
 - **目的**: ヤマキ物産様に特化した倉庫管理システム（WMS）の開発。入荷、出荷、在庫管理、棚卸、マスタ管理等の業務をデジタル化・効率化する。
 - **リポジトリ**: `https://github.com/MeriG-Git/ProjectRouteX.git`
 
@@ -17,32 +17,30 @@
 
 - **バックエンド / Web**: .NET 9.0 (ASP.NET Core MVC)
 - **ORM / DBアクセス**: Entity Framework Core 9.0
-- **データベース**:
-  - 開発・検証用: SQLite (`RouteXWms.db`)
-  - 本番・クラウド移行用: Azure SQL Database / SQL Server（移行ガイド `docs/azure_database_migration_guide.md`）
+- **標準 RDBMS (データベース)**:
+  - **メイン RDBMS**: **Microsoft SQL Server / Azure SQL Database**
+  - **メインPC (DBサーバー)**: ホスト名 `subPC` / IP `192.168.40.7`
+  - **データベース名**: `RouteXWmsDb`
+  - **接続方式**: Windows統合認証 (`Trusted_Connection=True;TrustServerCertificate=True;`)
+  - ※補助開発・ローカル検証用として SQLite (`RouteXWms.db`) にもデュアル対応可能。
 - **主要ライブラリ**:
   - `MiniExcel` (v1.44.1) : Excel入出力処理
-  - `Microsoft.EntityFrameworkCore.Sqlite` / `SqlServer`
+  - `Microsoft.EntityFrameworkCore.SqlServer` / `Sqlite`
 - **スクリプト・ツール**:
   - Python (`generate_presentation.py`, `generate_csv.py`) : プレゼン資料作成・ダミーデータ生成用
 
 ---
 
-## 3. 設計ルール & ガイドライン
+## 3. 設計ルール & 開発ガイドライン
 
 1. **言語設定**:
    - 会話・回答、コードコメント、ドキュメント作成はすべて**日本語**を標準とする。
-2. **データベース運用の原則 & LAN共有**:
-   - 開発初期・ローカルテストでは SQLite を使用。
-   - **LAN内共有接続（別PCからメインPC `subPC` のDBへ接続する場合）**:
-     - メインPC ホスト名: `subPC` / IPv4: `192.168.40.7`
-     - 別PCの `appsettings.json` で `SqliteConnection` を以下のように指定することで、このPCのDBを直接参照・編集可能です。
-       ```json
-       "SqliteConnection": "Data Source=\\\\subPC\\ProjectRouteX\\RouteXWms.db"
-       ```
-   - スキーマ変更時は Entity Framework Core Migration を活用し、将来の Azure SQL 移行に備えた設計を維持する。
+2. **データベース接続ルール (SQL Server 標準)**:
+   - `appsettings.json` の `DatabaseProvider` を `"SqlServer"` に設定する。
+   - 他PCからLAN経由でメインPC(`subPC`)のDBに接続する場合は、接続文字列 `DefaultConnection` の Server に `subPC` または `192.168.40.7` を指定する。
+   - アプリ初回起動時に `DbInitializer.Initialize()` が自動実行され、`RouteXWmsDb` が未作成の場合はテーブルおよび初期マスターデータ（管理者ユーザー含む）が自動生成される。
 3. **セキュリティ & 権限**:
-   - テスト用ログイン機能および認証フィルター (`Filters/`) を搭載。
+   - テスト用ログイン機能および認証フィルター (`Filters/AuthFilter.cs`) を搭載。
 
 ---
 
@@ -59,8 +57,5 @@
 - **2026-08-02**:
   - リポジトリ初期化および `GEMINI.md` / `.gitignore` の整備実施。
   - GitHub リモート (`https://github.com/MeriG-Git/ProjectRouteX.git`) との連携完了。
-  - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
-  - プロジェクト名およびフォルダ名を `ProjectRouteX` に変更し、ナレッジベース(`GEMINI.md`)を自動更新。
-  - LAN内DB共有設定（メインPC `subPC` / `192.168.40.7`）を追加し、`appsettings.json` および `GEMINI.md` を更新・Git送信。
-
-
+  - プロジェクト名およびフォルダ名を `ProjectRouteX` に正式変更。
+  - RDBMS を **SQL Server (`subPC` / `RouteXWmsDb`)** に標準化し、接続設定およびナレッジベース(`GEMINI.md`)を最新同期。
