@@ -56,3 +56,24 @@
   - GitHub リモート (`https://github.com/MeriG-Git/ProjectRouteX.git`) との連携完了。
   - プロジェクト名およびフォルダ名を `ProjectRouteX` に正式変更。
   - **RDBMS を SQL Server (`subPC` / `RouteXWmsDb`) に完全統一**。SQLite へのフォールバックを禁止し、SQL Server 接続を必須化。
+  - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
+
+---
+
+## 6. エージェント間連携リクエスト (subPC環境のAIエージェント宛て)
+
+> **【subPC側 AIエージェントへの依頼事項】**
+> 他端末のAIエージェントより、`subPC` (192.168.40.7) 上の SQL Server インスタンスに対する接続検証依頼が届いています。
+> 以下の SQL Server 構成およびアカウント設定を確認・調整し、外部接続を有効化してください。
+>
+> 1. **データベース確認**:
+>    - データベース `RouteXWmsDb` が存在するか、および既存スキーマの確認。
+> 2. **混合モード認証（SQL Server 認証）の有効化**:
+>    - SQL Server の認証モードを「SQL Server 認証と Windows 認証モード（混合モード）」に設定。
+> 3. **ログインアカウント設定**:
+>    - SQL ユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を作成し、`RouteXWmsDb` に対する `db_owner` 権限を付与。
+> 4. **ネットワークプロトコル・ファィアウォール許可**:
+>    - SQL Server の TCP/IP プロトコル（ポート `1433`）および SQL Server Browser サービスを有効化。
+>    - Windows ファイアウォールで TCP 1433 ポートの受信を許可。
+>
+> 設定完了後、本ファイル `GEMINI.md` の「5. 開発ロードマップ & 決定事項履歴」に結果を記録してください。

@@ -22,8 +22,10 @@ namespace RouteXWms.Data
             // データベースが存在しない場合は作成
             context.Database.EnsureCreated();
 
-            // 1. スキーママイグレーション補正処理（型変更および欠落カラム/テーブルの追加）
-            try
+            // 1. スキーママイグレーション補正処理（SQL Server環境の場合のみ実行）
+            if (context.Database.IsSqlServer())
+            {
+                try
             {
                 // 距離別運賃のコスト・価格カラムの型をintに補正
                 context.Database.ExecuteSqlRaw(@"
@@ -157,13 +159,45 @@ namespace RouteXWms.Data
                     IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('m_freight_table') AND name = 'carrier_id')
                     BEGIN
                         ALTER TABLE [m_freight_table] ALTER COLUMN [carrier_id] uniqueidentifier NOT NULL;
-                    END
                 ");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[Migration ERROR] Schema update failed: {ex.Message}");
                 Console.WriteLine(ex.ToString());
+            }
+            }
+            else if (context.Database.IsSqlite())
+            {
+                try
+                {
+                    context.Database.ExecuteSqlRaw(@"
+                        CREATE TABLE IF NOT EXISTS [m_carrier] ([carrier_id] TEXT NOT NULL PRIMARY KEY, [carrier_name] TEXT NOT NULL, [is_deleted] INTEGER NOT NULL DEFAULT 0, [created_by] TEXT NULL, [created_at] TEXT NULL, [updated_by] TEXT NULL, [updated_at] TEXT NULL);
+                        CREATE TABLE IF NOT EXISTS [m_freight_table] ([freight_table_id] TEXT NOT NULL PRIMARY KEY, [rate_name] TEXT NOT NULL, [rate_table_type] INTEGER NOT NULL, [carrier_id] TEXT NULL, [is_deleted] INTEGER NOT NULL DEFAULT 0, [created_by] TEXT NULL, [created_at] TEXT NULL, [updated_by] TEXT NULL, [updated_at] TEXT NULL);
+                        CREATE TABLE IF NOT EXISTS [m_individual_freight] ([individual_freight_id] TEXT NOT NULL PRIMARY KEY, [freight_table_id] TEXT NOT NULL, [pref_code] TEXT NOT NULL, [pref_name] TEXT NOT NULL, [cost] INTEGER NOT NULL, [price] INTEGER NOT NULL, [is_deleted] INTEGER NOT NULL DEFAULT 0, [created_by] TEXT NULL, [created_at] TEXT NULL, [updated_by] TEXT NULL, [updated_at] TEXT NULL);
+                        CREATE TABLE IF NOT EXISTS [m_shipping_class] ([shipping_class_id] TEXT NOT NULL PRIMARY KEY, [class_name] TEXT NOT NULL, [rate_table_type] INTEGER NOT NULL, [carrier_id] TEXT NULL, [is_deleted] INTEGER NOT NULL DEFAULT 0, [created_by] TEXT NULL, [created_at] TEXT NULL, [updated_by] TEXT NULL, [updated_at] TEXT NULL);
+                        CREATE TABLE IF NOT EXISTS [m_warehouse_distance_rate] ([warehouse_id] TEXT NOT NULL, [freight_table_id] TEXT NOT NULL, [is_deleted] INTEGER NOT NULL DEFAULT 0, [created_by] TEXT NULL, [created_at] TEXT NULL, [updated_by] TEXT NULL, [updated_at] TEXT NULL, PRIMARY KEY ([warehouse_id], [freight_table_id]));
+                        CREATE TABLE IF NOT EXISTS [t_shipping_instruction] ([shipping_instruction_id] TEXT NOT NULL PRIMARY KEY, [shipping_instruction_group] TEXT NOT NULL, [file_name] TEXT NULL, [file_size] INTEGER NOT NULL DEFAULT 0, [shipper_id] TEXT NOT NULL, [carrier_id] TEXT NOT NULL, [weight_spec] TEXT NULL, [imported_count] INTEGER NOT NULL DEFAULT 0, [status] INTEGER NOT NULL DEFAULT 1, [is_deleted] INTEGER NOT NULL DEFAULT 0, [created_by] TEXT NULL, [created_at] TEXT NULL, [updated_by] TEXT NULL, [updated_at] TEXT NULL);
+                        CREATE TABLE IF NOT EXISTS [t_outbound_allocation] ([allocation_id] TEXT NOT NULL PRIMARY KEY, [outbound_id] TEXT NOT NULL, [inventory_id] TEXT NOT NULL, [allocated_quantity] INTEGER NOT NULL, [is_loose_shipment] INTEGER NOT NULL DEFAULT 0, [status] INTEGER NOT NULL DEFAULT 11, [is_deleted] INTEGER NOT NULL DEFAULT 0, [created_by] TEXT NULL, [created_at] TEXT NULL, [updated_by] TEXT NULL, [updated_at] TEXT NULL);
+                    ");
+
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_individual_freight] ADD COLUMN [size] INTEGER NOT NULL DEFAULT 0;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_individual_freight] ADD COLUMN [weight] INTEGER NOT NULL DEFAULT 0;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_shipping_class] ADD COLUMN [rate_table_type] INTEGER NOT NULL DEFAULT 1;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_shipping_class] ADD COLUMN [carrier_id] TEXT NULL;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_freight_table] ADD COLUMN [carrier_id] TEXT NULL;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_warehouse_distance_rate] ADD COLUMN [freight_table_id] TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_warehouse_distance_rate] ADD COLUMN [warehouse_id] TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_distance_freight] ADD COLUMN [freight_table_id] TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_distance_freight] ADD COLUMN [size] INTEGER NOT NULL DEFAULT 0;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [m_distance_freight] ADD COLUMN [weight] INTEGER NOT NULL DEFAULT 0;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [t_inventory] ADD COLUMN [current_quantity] INTEGER NOT NULL DEFAULT 0;"); } catch {}
+                    try { context.Database.ExecuteSqlRaw("ALTER TABLE [t_inventory] ADD COLUMN [is_loose] INTEGER NOT NULL DEFAULT 0;"); } catch {}
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SQLite Schema Check] {ex.Message}");
+                }
             }
 
             // 2. 初期管理者ユーザー（WMSAdmin）の作成・パスワードハッシュ化移行
