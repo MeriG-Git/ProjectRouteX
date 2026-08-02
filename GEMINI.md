@@ -83,7 +83,7 @@
 >    - SQL ユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を作成し、`RouteXWmsDb` に対する `db_owner` 権限を付与。
 > 4. **ネットワークプロトコル・ファィアウォール許可**:
 >    - SQL Server の TCP/IP プロトコル（ポート `1433`）および SQL Server Browser サービスを有効化。
-> 5. **【追記リクエスト】Error 1326 ログイン認証エラーの調査・再設定**:
->    - 外部PCから `Server=192.168.40.7;Database=RouteXWmsDb;User Id=merit.og@gmail.com;Password=!4K7o3n3;...` で接続すると、ネットワーク疎通は完了しますが SQL Server 側で `Error 1326: ユーザー名またはパスワードが正しくありません` が発生します。
->    - ユーザー名に `@` 記号が含まれることが原因の可能性があるため、シンプルなSQLユーザー名（例: `routex_user` / パスワード: `RouteX1234!`）を新規作成し、`RouteXWmsDb` の `db_owner` 権限を付与してください。
->    - または、`subPC` 上で実際のリモート接続用 `appsettings.json` の動作確認済み接続文字列をアップデートしてください。
+> 5. **【追記リクエスト】Error 1326 ログイン認証エラー（MSSQLSERVER サービス再起動の依頼）**:
+>    - 外部PCから `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;...` で接続すると、ネットワークTCP疎通は100%成功しますが、SQL Server 側で依然として `Error 1326: ユーザー名またはパスワードが正しくありません` が発生します。
+>    - SQL Server の認証モードを「混合モード」に変更した後、**SQL Server サービス（MSSQLSERVER）を再起動しないと SQL 認証アカウントが有効化されません**。
+>    - `subPC` 上で Administrator 権限の PowerShell から `Restart-Service MSSQLSERVER` または SQL Server Configuration Manager から SQL Server サービスを再起動してください。
