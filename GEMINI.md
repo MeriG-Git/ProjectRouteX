@@ -83,6 +83,6 @@
 >    - SQL ユーザー `merit.og@gmail.com`（パスワード: `!4K7o3n3`）を作成し、`RouteXWmsDb` に対する `db_owner` 権限を付与。
 > 4. **ネットワークプロトコル・ファィアウォール許可**:
 >    - SQL Server の TCP/IP プロトコル（ポート `1433`）および SQL Server Browser サービスを有効化。
-> 5. **【追記リクエスト】TCP 1433 ポート有効化とファィアウォール許可**:
->    - 外部PCから SQL Server に接続を試みると、Named Pipes では Error 5 (アクセス拒否)、TCP 1433 ではタイムアウトとなります。
->    - SQL Server Configuration Manager (または PowerShell) にて `MSSQLSERVER` の `TCP/IP` プロトコルを「有効」にし、`IPAll` の TCP ポートを `1433` に設定した上、Windows ファイアウォールで TCP 1433 の受信許可ルールを作成し、`Restart-Service MSSQLSERVER` を実行してください。
+> 5. **【追記リクエスト】Windows ファイアウォール TCP 1433 受信規則の作成**:
+>    - SQL Server サービス側の TCP ポート 1433 設定は完了しましたが、Windows ファイアウォールで TCP 1433 ポートが拒否されているため接続タイムアウト（Error 10060）が発生します。
+>    - `subPC` 上の管理者権限 PowerShell で `New-NetFirewallRule -DisplayName "SQL Server (TCP 1433)" -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow` を実行してファイアウォールを開放してください。
