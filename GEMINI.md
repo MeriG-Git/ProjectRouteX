@@ -57,12 +57,14 @@
   - プロジェクト名およびフォルダ名を `ProjectRouteX` に正式変更。
   - **RDBMS を SQL Server (`subPC` / `RouteXWmsDb`) に完全統一**。SQLite へのフォールバックを禁止し、SQL Server 接続を必須化。
   - Azure SQL 移行手順書 (`docs/azure_database_migration_guide.md`) 策定済み。
-  - **【構築完了】SQL Server 2025 Standard Developer Edition 導入成功**:
+  - **【構築完了】SQL Server 2025 Standard Developer Edition 導入成功 & TCP/IP 有効化**:
     1. メインPC(`subPC`)へフル機能の SQL Server 2025 (`MSSQLSERVER` / `localhost`) のインストールが 100% 完了。
     2. データベース `RouteXWmsDb` および専用 SQL 認証ユーザー `routex_user`（パスワード: `RouteX1234!`、`CHECK_POLICY = OFF`）の作成・`db_owner` 権限付与を正常完了。
-    3. 混合モード認証 (LoginMode = 2) のレジストリ適用を完了。**【必須】SQL Server サービス（MSSQLSERVER）の再起動（`Restart-Service MSSQLSERVER`）が必要です。**
-    4. 確定接続文字列 (Server=192.168.40.7):
+    3. 混合モード認証 (LoginMode = 2) および **TCP/IP プロトコル有効化 (Enabled=1) / 固定ポート 1433 設定のレジストリ適用を完了**。
+    4. **【要実行】SQL Server サービス (MSSQLSERVER) の再起動**を行ってください。再起動後に外部端末（192.168.40.7）からの 1433 ポート SQL 認証が完全に開通します。
+    5. 確定接続文字列 (Server=192.168.40.7):
        `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;TrustServerCertificate=True;MultipleActiveResultSets=true;`
+
 
 
 ---
