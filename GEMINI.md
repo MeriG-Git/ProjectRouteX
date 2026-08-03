@@ -60,13 +60,13 @@
   - **【構築完了】SQL Server 2025 Standard Developer Edition 導入成功 & 接続設計確定**:
     1. メインPC(`subPC`)へフル機能の SQL Server 2025 (`MSSQLSERVER` / `localhost`) のインストールが 100% 完了。
     2. データベース `RouteXWmsDb` および専用 SQL 認証ユーザー `routex_user`（パスワード: `RouteX1234!`、`CHECK_POLICY = OFF`）の作成・`db_owner` 権限付与・旧DBからの全データ移行を正常完了。
-    3. TCP/IP プロトコル有効化 (`Enabled = 1`) および固定 1433 ポート (`TcpPort = "1433"`, `TcpDynamicPorts = ""`) のレジストリ設定スクリプト (`scratch/enable_tcp.ps1`) を作成・適用完了。
-    4. **管理者権限での TCP 1433 ファイアウォールルール作成および SQL Server サービス再起動**:
-       `New-NetFirewallRule -DisplayName "SQL Server (TCP 1433)" -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow`
-       `Restart-Service MSSQLSERVER`
+    3. TCP/IP プロトコル有効化 (`Enabled = 1`) および固定 1433 ポート (`TcpPort = "1433"`, `TcpDynamicPorts = ""`) のレジストリ設定スクリプト (`scratch/enable_tcp.ps1`) を自動検出版に修正完了。
+    4. **管理者権限での TCP 1433 レジストリ適用・ファイアウォールルール作成・サービス再起動**:
+       `Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" | Where-Object { $_.PSChildName -like "MSSQL*" } | ForEach-Object { $tcp = $_.PSPath + "\MSSQLServer\SuperSocketNetLib\Tcp"; if (Test-Path $tcp) { Set-ItemProperty -Path $tcp -Name "Enabled" -Value 1; $ipAll = $tcp + "\IPAll"; if (Test-Path $ipAll) { Set-ItemProperty -Path $ipAll -Name "TcpPort" -Value "1433"; Set-ItemProperty -Path $ipAll -Name "TcpDynamicPorts" -Value "" } } }; New-NetFirewallRule -DisplayName "SQL Server (TCP 1433)" -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow -ErrorAction SilentlyContinue; Restart-Service MSSQLSERVER`
     5. **確定接続文字列**:
        - 自PC用: `Server=localhost;Database=RouteXWmsDb;Trusted_Connection=True;`
        - 他PC(外部端末)用: `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;TrustServerCertificate=True;MultipleActiveResultSets=true;`
+
 
 
 
