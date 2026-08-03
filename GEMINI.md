@@ -38,6 +38,10 @@
    - アプリ初回起動時に `DbInitializer.Initialize()` が自動実行され、`RouteXWmsDb` が未作成の場合はテーブルおよび初期マスターデータ（管理者ユーザー含む）が自動生成される。
 3. **セキュリティ & 権限**:
    - テスト用ログイン機能および認証フィルター (`Filters/AuthFilter.cs`) を搭載。
+4. **9スペシャリスト・マルチエージェント体制 & チケット管理**:
+   - 9名の専門エージェント (`team/01_project_manager/` 〜 `team/09_test_engineer/`) が協調。
+   - `team/tickets/BOARD.md` および個別チケット (`TICK-xxx.md`) により全タスクと進捗率をリアルタイム可視化。
+   - 隠し事ゼロの原則により、すべての知見・設計決定を `KNOWLEDGE.md` にオープン共有。
 
 ---
 
