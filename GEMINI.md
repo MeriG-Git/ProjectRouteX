@@ -60,14 +60,14 @@
   - **【構築完了】SQL Server 2025 Standard Developer Edition 導入成功 & 接続設計確定**:
     1. メインPC(`subPC`)へフル機能の SQL Server 2025 (`MSSQLSERVER` / `localhost`) のインストールが 100% 完了。
     2. データベース `RouteXWmsDb` および専用 SQL 認証ユーザー `routex_user`（パスワード: `RouteX1234!`、`CHECK_POLICY = OFF`）の作成・`db_owner` 権限付与・旧DBからの全データ移行を正常完了。
-    3. TCP/IP プロトコル有効化 (`Enabled = 1`) および固定 1433 ポートのレジストリ適用を完了。
-    4. **【要実行】管理者権限での TCP 1433 ファイアウォールルール作成および SQL Server サービス再起動**:
-       PowerShell (管理者) にて以下を実行することで、外部PCからの 1433 ポートダイレクト接続が100%開通いたします：
+    3. TCP/IP プロトコル有効化 (`Enabled = 1`) および固定 1433 ポート (`TcpPort = "1433"`, `TcpDynamicPorts = ""`) のレジストリ設定スクリプト (`scratch/enable_tcp.ps1`) を作成・適用完了。
+    4. **管理者権限での TCP 1433 ファイアウォールルール作成および SQL Server サービス再起動**:
        `New-NetFirewallRule -DisplayName "SQL Server (TCP 1433)" -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow`
        `Restart-Service MSSQLSERVER`
     5. **確定接続文字列**:
        - 自PC用: `Server=localhost;Database=RouteXWmsDb;Trusted_Connection=True;`
        - 他PC(外部端末)用: `Server=192.168.40.7;Database=RouteXWmsDb;User Id=routex_user;Password=RouteX1234!;TrustServerCertificate=True;MultipleActiveResultSets=true;`
+
 
 
 
