@@ -20,6 +20,9 @@ namespace RouteXWms.Models
         /// <summary>荷主名</summary>
         public string ShipperName { get; set; } = string.Empty;
 
+        /// <summary>案件名</summary>
+        public string ProjectName { get; set; } = string.Empty;
+
         /// <summary>運送会社名</summary>
         public string CarrierName { get; set; } = string.Empty;
 

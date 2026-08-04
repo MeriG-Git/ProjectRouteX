@@ -54,10 +54,10 @@ namespace RouteXWms.Controllers
             {
                 System.Console.WriteLine($"ShippingClass: ID={sc.ShippingClassId}, Name={sc.ClassName}, RateTableType={sc.RateTableType}, CarrierId={sc.CarrierId}");
             }
-            var wdrs = await _context.WarehouseDistanceRates.Include(w => w.FreightTable).ToListAsync();
-            foreach (var wdr in wdrs)
+            var pwfts = await _context.ProjectWarehouseFreightTables.Include(w => w.FreightTable).ToListAsync();
+            foreach (var pwft in pwfts)
             {
-                System.Console.WriteLine($"WarehouseDistanceRate: WarehouseId={wdr.WarehouseId}, FreightTableId={wdr.FreightTableId}, CarrierId={wdr.FreightTable?.CarrierId}");
+                System.Console.WriteLine($"ProjectWarehouseFreightTable: ProjectId={pwft.ProjectId}, WarehouseId={pwft.WarehouseId}, FreightTableId={pwft.FreightTableId}, CarrierId={pwft.FreightTable?.CarrierId}");
             }
             System.Console.WriteLine("======= DIAGNOSTIC LOG END =======");
 

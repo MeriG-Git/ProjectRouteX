@@ -95,7 +95,7 @@ namespace RouteXWms.Controllers
         {
             var carriers = await _context.Carriers.Select(c => new { c.CarrierId, c.CarrierName }).ToListAsync();
             var freightTables = await _context.FreightTables.Select(d => new { d.FreightTableId, d.RateName, d.RateTableType, d.CarrierId }).ToListAsync();
-            var warehouseDistanceRates = await _context.WarehouseDistanceRates.Select(w => new { w.WarehouseId, w.FreightTableId, w.IsDeleted }).ToListAsync();
+            var projectWarehouseFreightTables = await _context.ProjectWarehouseFreightTables.Select(w => new { w.ProjectId, w.WarehouseId, w.FreightTableId, w.IsDeleted }).ToListAsync();
             var shippingClasses = await _context.ShippingClasses.Select(s => new { s.ShippingClassId, s.ClassName, s.CarrierId, s.RateTableType }).ToListAsync();
             var collectionAreas = await _context.CollectionAreas.Select(a => new { a.ShipperId, a.WarehouseId, a.ShippingClassId, a.SenderCode }).ToListAsync();
             var warehouses = await _context.Warehouses.Select(w => new { w.WarehouseId, w.WarehouseName }).ToListAsync();
@@ -103,7 +103,7 @@ namespace RouteXWms.Controllers
             return Json(new {
                 Carriers = carriers,
                 FreightTables = freightTables,
-                WarehouseDistanceRates = warehouseDistanceRates,
+                ProjectWarehouseFreightTables = projectWarehouseFreightTables,
                 ShippingClasses = shippingClasses,
                 CollectionAreas = collectionAreas,
                 Warehouses = warehouses
@@ -251,39 +251,46 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(ConfirmWarehouse), new { groupCode });
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
             try
             {
-                var targetIds = targetOutbounds.Select(o => o.OutboundId).ToList();
-
-                foreach (var outbound in targetOutbounds)
+                await strategy.ExecuteAsync(async () =>
                 {
-                    outbound.Status = 11;
-                }
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    var targetIds = targetOutbounds.Select(o => o.OutboundId).ToList();
 
-                var allocations = await _context.OutboundAllocations
-                    .Include(a => a.Inventory)
-                    .Where(a => targetIds.Contains(a.OutboundId) && !a.IsDeleted)
-                    .ToListAsync();
-
-                foreach (var alloc in allocations)
-                {
-                    alloc.Status = 11;
-                    if (alloc.Inventory != null && !alloc.IsLooseShipment)
+                    foreach (var outbound in targetOutbounds)
                     {
-                        alloc.Inventory.Status = 11;
+                        outbound.Status = 11;
                     }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    var allocations = await _context.OutboundAllocations
+                        .Include(a => a.Inventory)
+                        .Where(a => targetIds.Contains(a.OutboundId) && !a.IsDeleted)
+                        .ToListAsync();
+
+                    foreach (var alloc in allocations)
+                    {
+                        alloc.Status = 11;
+                        if (alloc.Inventory != null && !alloc.IsLooseShipment)
+                        {
+                            alloc.Inventory.Status = 11;
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
 
                 TempData["SuccessMessage"] = $"{targetOutbounds.Count}件の「確認中」データを一括で確認済（予定）に更新しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                TempData["ErrorMessage"] = $"一括確定処理中にエラーが発生しました: {ex.Message}";
+                string rawDetail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                string friendlyMessage = rawDetail.Contains("SqlServerRetryingExecutionStrategy")
+                    ? "データベースのリトライ戦略による制限が発生しました。再度実行してください。"
+                    : rawDetail;
+                TempData["ErrorMessage"] = $"一括確定処理中にエラーが発生しました: {friendlyMessage}";
             }
 
             return RedirectToAction(nameof(ConfirmWarehouse), new { groupCode });
@@ -378,11 +385,17 @@ namespace RouteXWms.Controllers
         /// 出荷指示（Excel/CSV）の取り込み設定画面を表示します。
         /// </summary>
         /// <returns>取り込み画面ビュー</returns>
+        /// <summary>
+        /// 出荷指示（Excel/CSV）の取り込み設定画面を表示します。
+        /// </summary>
+        /// <returns>取り込み画面ビュー</returns>
         [HttpGet]
         public async Task<IActionResult> ImportInstruction()
         {
-            ViewBag.Shippers = await _context.Shippers.OrderBy(s => s.ShipperName).ToListAsync();
-            ViewBag.Carriers = await _context.Carriers.OrderBy(c => c.CarrierName).ToListAsync();
+            ViewBag.Shippers = await _context.Shippers.Where(s => !s.IsDeleted).OrderBy(s => s.ShipperName).ToListAsync();
+            ViewBag.Projects = await _context.Projects.Where(p => !p.IsDeleted).OrderBy(p => p.ProjectName)
+                .Select(p => new { p.ProjectId, p.ShipperId, p.ProjectName })
+                .ToListAsync();
             return View();
         }
 
@@ -390,7 +403,7 @@ namespace RouteXWms.Controllers
         /// 出荷指示ファイルを取り込み、最安倉庫選定アルゴリズム・FIFO在庫引き当てを自動実行します。
         /// </summary>
         /// <param name="shipperId">荷主ID</param>
-        /// <param name="carrierId">運送会社ID</param>
+        /// <param name="projectId">案件ID</param>
         /// <param name="weightSpec">重量計算仕様（30kg固定 or 商品マスタ）</param>
         /// <param name="skipHeader">ヘッダー行スキップフラグ</param>
         /// <param name="excelFile">アップロードファイル</param>
@@ -399,276 +412,270 @@ namespace RouteXWms.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ImportInstruction(
             Guid shipperId,
-            Guid carrierId,
+            Guid projectId,
             string weightSpec,
             bool skipHeader,
             IFormFile excelFile)
         {
-            if (shipperId == Guid.Empty || carrierId == Guid.Empty || excelFile == null || excelFile.Length == 0)
+            if (shipperId == Guid.Empty || projectId == Guid.Empty || excelFile == null || excelFile.Length == 0)
             {
-                TempData["ErrorMessage"] = "必須項目（荷主、運送会社、出荷指示ファイル）を入力してください。";
+                TempData["ErrorMessage"] = "必須項目（荷主、案件、出荷指示ファイル）を入力してください。";
                 return RedirectToAction(nameof(ImportInstruction));
             }
 
             string groupCode = "GRP-" + DateTime.Now.ToString("yyyyMMddHHmmss") + "-" + Guid.NewGuid().ToString().Substring(0, 4).ToUpper();
             bool is30KgFixed = weightSpec == "fixed30";
+            int totalImported = 0;
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
             try
             {
-                using var stream = excelFile.OpenReadStream();
-                var rows = stream.Query(useHeaderRow: false).ToList();
-
-                int startRowIndex = skipHeader ? 1 : 0;
-                int importedCount = 0;
-
-                var shippingInstruction = new ShippingInstruction
+                await strategy.ExecuteAsync(async () =>
                 {
-                    ShippingInstructionId = Guid.NewGuid(),
-                    ShippingInstructionGroup = groupCode,
-                    FileName = Path.GetFileName(excelFile.FileName),
-                    FileSize = excelFile.Length,
-                    ShipperId = shipperId,
-                    CarrierId = carrierId,
-                    WeightSpec = weightSpec,
-                    ImportedCount = 0,
-                    Status = 1
-                };
-                _context.ShippingInstructions.Add(shippingInstruction);
-                await _context.SaveChangesAsync();
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    using var stream = excelFile.OpenReadStream();
+                    var rows = stream.Query(useHeaderRow: false).ToList();
 
-                var validProducts = await _context.Products.ToListAsync();
-                var validProductIds = new HashSet<string>(validProducts.Select(p => p.ProductId));
+                    int startRowIndex = skipHeader ? 1 : 0;
+                    int importedCount = 0;
 
-                string GetValue(IDictionary<string, object> r, int index)
-                {
-                    string key = ((char)('A' + index)).ToString();
-                    if (r.TryGetValue(key, out var val))
+                    var shippingInstruction = new ShippingInstruction
                     {
-                        return val?.ToString() ?? "";
-                    }
-                    return "";
-                }
+                        ShippingInstructionId = Guid.NewGuid(),
+                        ShippingInstructionGroup = groupCode,
+                        FileName = Path.GetFileName(excelFile.FileName),
+                        FileSize = excelFile.Length,
+                        ShipperId = shipperId,
+                        ProjectId = projectId,
+                        WeightSpec = weightSpec,
+                        ImportedCount = 0,
+                        Status = 1
+                    };
+                    _context.ShippingInstructions.Add(shippingInstruction);
+                    await _context.SaveChangesAsync();
 
-                var excelProductCodes = new HashSet<string>();
-                for (int i = startRowIndex; i < rows.Count; i++)
-                {
-                    IDictionary<string, object> row = (IDictionary<string, object>)rows[i];
-                    string pCode = GetValue(row, 9).Trim();
-                    if (!string.IsNullOrEmpty(pCode))
+                    var validProducts = await _context.Products.ToListAsync();
+                    var validProductIds = new HashSet<string>(validProducts.Select(p => p.ProductId));
+
+                    string GetValue(IDictionary<string, object> r, int index)
                     {
-                        excelProductCodes.Add(pCode);
-                    }
-                }
-
-                var mappedWarehouseIds = await _context.WarehouseDistanceRates
-                    .Where(w => w.FreightTable!.CarrierId == carrierId && !w.IsDeleted)
-                    .Select(w => w.WarehouseId)
-                    .ToListAsync();
-
-                for (int i = startRowIndex; i < rows.Count; i++)
-                {
-                    IDictionary<string, object> row = (IDictionary<string, object>)rows[i];
-
-                    string recipientCode = GetValue(row, 0);
-                    string productCode = GetValue(row, 9);
-
-                    if (string.IsNullOrWhiteSpace(recipientCode) && string.IsNullOrWhiteSpace(productCode)) continue;
-
-                    string zipCode = GetValue(row, 1).Replace("-", "").Trim();
-                    if (zipCode.Length > 7)
-                    {
-                        zipCode = zipCode.Substring(0, 7);
-                    }
-
-                    string addr1 = GetValue(row, 2);
-                    string addr2 = GetValue(row, 3);
-                    string addr3 = GetValue(row, 4);
-                    string company1 = GetValue(row, 5);
-                    string company2 = GetValue(row, 6);
-                    string name = GetValue(row, 7);
-                    string tel = GetValue(row, 8);
-                    string productName = GetValue(row, 10);
-                    int? packQtyVal = int.TryParse(GetValue(row, 11), out var pQty) && pQty > 0 ? pQty : null;
-                    int.TryParse(GetValue(row, 12), out var itemUnits);
-                    string notes = GetValue(row, 13);
-                    string scheduledDateStr = GetValue(row, 14);
-                    string scheduledDeliveryDateStr = GetValue(row, 15);
-                    int? deliveryTimeClass = null;
-                    string deliveryTimeStr = GetValue(row, 16);
-                    if (int.TryParse(deliveryTimeStr, out var dTime))
-                    {
-                        deliveryTimeClass = dTime;
-                    }
-
-                    string deliveryNoteApp1 = GetValue(row, 17);
-                    string deliveryNoteApp2 = GetValue(row, 18);
-                    string deliveryNoteNotes = GetValue(row, 19);
-                    string transportCode = GetValue(row, 20);
-                    string memo = GetValue(row, 21);
-
-                    DateTime? scheduledDate = null;
-                    string[] dateFormats = { "yyyyMMdd", "yyyy/MM/dd", "yyyy-MM-dd", "yyyy/M/d", "yyyy-M-d" };
-                    if (DateTime.TryParse(scheduledDateStr, out var dt))
-                    {
-                        scheduledDate = dt;
-                    }
-                    else if (DateTime.TryParseExact(scheduledDateStr?.Trim(), dateFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dtExact))
-                    {
-                        scheduledDate = dtExact;
-                    }
-
-                    DateTime? scheduledDeliveryDate = null;
-                    if (DateTime.TryParse(scheduledDeliveryDateStr, out var dtDeliv))
-                    {
-                        scheduledDeliveryDate = dtDeliv;
-                    }
-                    else if (DateTime.TryParseExact(scheduledDeliveryDateStr?.Trim(), dateFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dtDelivExact))
-                    {
-                        scheduledDeliveryDate = dtDelivExact;
-                    }
-
-                    if (string.IsNullOrWhiteSpace(productCode))
-                    {
-                        throw new Exception($"{i + 1}行目: 商品コードが空です。");
-                    }
-                    if (!validProductIds.Contains(productCode))
-                    {
-                        throw new Exception($"{i + 1}行目: 商品コード '{productCode}' は商品マスタに存在しません。");
-                    }
-
-                    if (itemUnits <= 0) itemUnits = 1;
-
-                    var cheapestOpt = await _cheapestWarehouseService.FindCheapestWarehouseOptionAsync(
-                        shipperId, productCode, carrierId, zipCode, itemUnits, is30KgFixed);
-
-                    Guid? warehouseId = cheapestOpt.WarehouseId;
-                    int rateTableType = cheapestOpt.RateTableType;
-                    bool hasStock = cheapestOpt.HasStock;
-                    bool isPriceNotFound = !cheapestOpt.IsPriceFound;
-                    decimal? adoptedPrice = cheapestOpt.CalculatedPrice;
-
-                    if (hasStock && !warehouseId.HasValue)
-                    {
-                        var fallbackWhId = await _context.Inventories
-                            .Where(inv => inv.ShipperId == shipperId && inv.ProductId == productCode && inv.Status == 1 && mappedWarehouseIds.Contains(inv.WarehouseId) && !inv.IsDeleted)
-                            .Select(inv => (Guid?)inv.WarehouseId)
-                            .FirstOrDefaultAsync();
-
-                        if (fallbackWhId.HasValue)
+                        string key = ((char)('A' + index)).ToString();
+                        if (r.TryGetValue(key, out var val))
                         {
-                            var rateMapping = await _context.WarehouseDistanceRates
-                                .Include(w => w.FreightTable)
-                                .FirstOrDefaultAsync(w => w.WarehouseId == fallbackWhId.Value && w.FreightTable!.CarrierId == carrierId && !w.IsDeleted);
-                            if (rateMapping?.FreightTable != null)
-                            {
-                                rateTableType = rateMapping.FreightTable.RateTableType;
-                            }
+                            return val?.ToString() ?? "";
+                        }
+                        return "";
+                    }
+
+                    var excelProductCodes = new HashSet<string>();
+                    for (int i = startRowIndex; i < rows.Count; i++)
+                    {
+                        var rowDict = rows[i] as IDictionary<string, object>;
+                        if (rowDict == null) continue;
+
+                        string pCode = GetValue(rowDict, 9).Trim();
+                        if (!string.IsNullOrWhiteSpace(pCode))
+                        {
+                            excelProductCodes.Add(pCode);
                         }
                     }
 
-                    string? senderCode = null;
+                    Guid? lastAdoptedCarrierId = null;
 
-                    var shippingClass = await _context.ShippingClasses
-                        .FirstOrDefaultAsync(s => s.CarrierId == carrierId && s.RateTableType == rateTableType && !s.IsDeleted)
-                        ?? await _context.ShippingClasses.FirstOrDefaultAsync(s => s.CarrierId == carrierId && !s.IsDeleted);
-
-                    if (shippingClass == null)
+                    for (int i = startRowIndex; i < rows.Count; i++)
                     {
-                        throw new Exception("選択された運送会社に対して出庫区分マスター（m_shipping_class）が登録されていません。");
-                    }
+                        var rowDict = rows[i] as IDictionary<string, object>;
+                        if (rowDict == null) continue;
 
-                    Guid shippingType = shippingClass.ShippingClassId;
+                        string recipientCode = GetValue(rowDict, 0);
+                        string productCode = GetValue(rowDict, 9);
 
-                    if (warehouseId.HasValue)
-                    {
-                        var area = await _context.CollectionAreas
-                            .FirstOrDefaultAsync(a => a.ShipperId == shipperId 
-                                                   && a.ShippingClassId == shippingType 
-                                                   && a.WarehouseId == warehouseId.Value 
-                                                   && !a.IsDeleted);
-                        senderCode = area?.SenderCode;
-                    }
+                        if (string.IsNullOrWhiteSpace(recipientCode) && string.IsNullOrWhiteSpace(productCode)) continue;
 
-                    var targetProduct = validProducts.FirstOrDefault(p => p.ProductId == productCode);
-                    int unitQty = targetProduct?.Quantity > 0 ? targetProduct.Quantity : 1;
-                    int initialCaseCount = itemUnits / unitQty + (itemUnits % unitQty > 0 ? 1 : 0);
-                    if (initialCaseCount <= 0) initialCaseCount = 1;
+                        string zipCode = GetValue(rowDict, 1).Replace("-", "").Trim();
+                        if (zipCode.Length > 7)
+                        {
+                            zipCode = zipCode.Substring(0, 7);
+                        }
 
-                    int unitW = is30KgFixed ? 30 : (targetProduct?.Weight ?? 0);
-                    int initialWeight = unitW * initialCaseCount;
+                        string addr1 = GetValue(rowDict, 2);
+                        string addr2 = GetValue(rowDict, 3);
+                        string addr3 = GetValue(rowDict, 4);
+                        string company1 = GetValue(rowDict, 5);
+                        string company2 = GetValue(rowDict, 6);
+                        string name = GetValue(rowDict, 7);
+                        string tel = GetValue(rowDict, 8);
+                        string productName = GetValue(rowDict, 10);
+                        int? packQtyVal = int.TryParse(GetValue(rowDict, 11), out var pQty) && pQty > 0 ? pQty : null;
+                        int.TryParse(GetValue(rowDict, 12), out var itemUnits);
+                        string notes = GetValue(rowDict, 13);
+                        string scheduledDateStr = GetValue(rowDict, 14);
+                        string scheduledDeliveryDateStr = GetValue(rowDict, 15);
+                        string deliveryTimeStr = GetValue(rowDict, 16);
 
-                    var outbound = new Outbound
-                    {
-                        OutboundId = Guid.NewGuid(),
-                        ShippingInstructionId = shippingInstruction.ShippingInstructionId,
-                        ShipperId = shipperId,
-                        WarehouseId = warehouseId,
-                        ProductId = productCode,
-                        CarrierId = carrierId,
-                        ShippingInstructionGroup = groupCode,
-                        ScheduledOutboundDate = scheduledDate,
-                        ShippingType = shippingType,
-                        PalletCount = 0,
-                        TotalPieces = itemUnits,
-                        CaseCount = initialCaseCount,
-                        PackQty = packQtyVal,
-                        OutboundWeight = initialWeight,
-                        Price = adoptedPrice,
-                        SenderCode = senderCode,
-                        DeliveryTimeClass = deliveryTimeClass,
-                        Status = !hasStock ? 998 : (isPriceNotFound ? 801 : 1),
-                        RecipientCode = recipientCode,
-                        ZipCode = zipCode,
-                        Address1 = addr1,
-                        Address2 = addr2,
-                        Address3 = addr3,
-                        CompanyName1 = company1,
-                        CompanyName2 = company2,
-                        RecipientName = name,
-                        Tel = tel,
-                        Notes = notes,
-                        ScheduledDeliveryDate = scheduledDeliveryDate,
-                        DeliveryNoteApp1 = deliveryNoteApp1,
-                        DeliveryNoteApp2 = deliveryNoteApp2,
-                        DeliveryNoteNotes = deliveryNoteNotes,
-                        TransportCode = transportCode,
-                        Memo = memo
-                    };
-                    _context.Outbounds.Add(outbound);
-                    await _context.SaveChangesAsync();
+                        string deliveryNoteApp1 = GetValue(rowDict, 17);
+                        string deliveryNoteApp2 = GetValue(rowDict, 18);
+                        string deliveryNoteNotes = GetValue(rowDict, 19);
+                        string transportCode = GetValue(rowDict, 20);
+                        string memo = GetValue(rowDict, 21);
 
-                    if (hasStock && warehouseId.HasValue)
-                    {
-                        int calculatedCaseCount = await _cheapestWarehouseService.AllocateInventoryAsync(
-                            outbound.OutboundId, warehouseId.Value, shipperId, productCode, itemUnits, outbound.ScheduledOutboundDate);
-                        
-                        outbound.CaseCount = calculatedCaseCount;
+                        DateTime? scheduledDate = null;
+                        string[] dateFormats = { "yyyyMMdd", "yyyy/MM/dd", "yyyy-MM-dd", "yyyy/M/d", "yyyy-M-d" };
+                        if (DateTime.TryParse(scheduledDateStr, out var dt))
+                        {
+                            scheduledDate = dt;
+                        }
+                        else if (DateTime.TryParseExact(scheduledDateStr?.Trim(), dateFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dtExact))
+                        {
+                            scheduledDate = dtExact;
+                        }
 
-                        int unitWeight = is30KgFixed ? 30 : (targetProduct?.Weight ?? 0);
-                        outbound.OutboundWeight = unitWeight * calculatedCaseCount;
+                        DateTime? scheduledDeliveryDate = null;
+                        if (DateTime.TryParse(scheduledDeliveryDateStr, out var dtDeliv))
+                        {
+                            scheduledDeliveryDate = dtDeliv;
+                        }
+                        else if (DateTime.TryParseExact(scheduledDeliveryDateStr?.Trim(), dateFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dtDelivExact))
+                        {
+                            scheduledDeliveryDate = dtDelivExact;
+                        }
 
-                        _context.Outbounds.Update(outbound);
+                        if (string.IsNullOrWhiteSpace(productCode))
+                        {
+                            throw new Exception($"{i + 1}行目: 商品コードが空です。");
+                        }
+                        if (!validProductIds.Contains(productCode))
+                        {
+                            throw new Exception($"{i + 1}行目: 商品コード '{productCode}' は商品マスタに存在しません。");
+                        }
+
+                        if (itemUnits <= 0) itemUnits = 1;
+
+                        var cheapestOpt = await _cheapestWarehouseService.FindCheapestWarehouseOptionAsync(
+                            shipperId, productCode, Guid.Empty, zipCode, itemUnits, is30KgFixed, projectId);
+
+                        Guid? warehouseId = cheapestOpt.WarehouseId;
+                        int rateTableType = cheapestOpt.RateTableType;
+                        bool hasStock = cheapestOpt.HasStock;
+                        bool isPriceNotFound = !cheapestOpt.IsPriceFound;
+                        decimal? adoptedPrice = cheapestOpt.CalculatedPrice;
+
+                        Guid carrierId = cheapestOpt.CarrierId ?? Guid.Empty;
+                        if (carrierId == Guid.Empty)
+                        {
+                            var firstPwft = await _context.ProjectWarehouseFreightTables
+                                .Include(pwf => pwf.FreightTable)
+                                .FirstOrDefaultAsync(pwf => pwf.ProjectId == projectId && !pwf.IsDeleted);
+                            carrierId = firstPwft?.FreightTable?.CarrierId ?? Guid.Empty;
+                        }
+                        if (carrierId != Guid.Empty)
+                        {
+                            lastAdoptedCarrierId = carrierId;
+                        }
+
+                        string? senderCode = null;
+
+                        var shippingClass = await _context.ShippingClasses
+                            .FirstOrDefaultAsync(s => s.CarrierId == carrierId && s.RateTableType == rateTableType && !s.IsDeleted)
+                            ?? await _context.ShippingClasses.FirstOrDefaultAsync(s => s.CarrierId == carrierId && !s.IsDeleted);
+
+                        if (shippingClass != null && warehouseId.HasValue)
+                        {
+                            var area = await _context.CollectionAreas
+                                .FirstOrDefaultAsync(a => a.ShipperId == shipperId 
+                                                       && a.ShippingClassId == shippingClass.ShippingClassId 
+                                                       && a.WarehouseId == warehouseId.Value 
+                                                       && !a.IsDeleted);
+                            senderCode = area?.SenderCode;
+                        }
+
+                        var targetProduct = validProducts.FirstOrDefault(p => p.ProductId == productCode);
+                        int unitQty = targetProduct?.Quantity > 0 ? targetProduct.Quantity : 1;
+                        int initialCaseCount = itemUnits / unitQty + (itemUnits % unitQty > 0 ? 1 : 0);
+                        if (initialCaseCount <= 0) initialCaseCount = 1;
+
+                        int unitW = is30KgFixed ? 30 : (targetProduct?.Weight ?? 0);
+                        int initialWeight = unitW * initialCaseCount;
+
+                        int? deliveryTimeClass = int.TryParse(deliveryTimeStr, out var dTime) ? dTime : null;
+
+                        var outbound = new Outbound
+                        {
+                            OutboundId = Guid.NewGuid(),
+                            ShippingInstructionId = shippingInstruction.ShippingInstructionId,
+                            ShipperId = shipperId,
+                            WarehouseId = warehouseId,
+                            ProductId = productCode,
+                            CarrierId = carrierId,
+                            ShippingInstructionGroup = groupCode,
+                            ScheduledOutboundDate = scheduledDate,
+                            ShippingType = shippingClass?.ShippingClassId ?? Guid.Empty,
+                            PalletCount = 0,
+                            TotalPieces = itemUnits,
+                            CaseCount = initialCaseCount,
+                            PackQty = packQtyVal,
+                            OutboundWeight = initialWeight,
+                            Price = adoptedPrice,
+                            SenderCode = senderCode,
+                            DeliveryTimeClass = deliveryTimeClass,
+                            Status = !hasStock ? 998 : (isPriceNotFound ? 801 : 1),
+                            RecipientCode = recipientCode,
+                            ZipCode = zipCode,
+                            Address1 = addr1,
+                            Address2 = addr2,
+                            Address3 = addr3,
+                            CompanyName1 = company1,
+                            CompanyName2 = company2,
+                            RecipientName = name,
+                            Tel = tel,
+                            Notes = notes,
+                            ScheduledDeliveryDate = scheduledDeliveryDate,
+                            DeliveryNoteApp1 = deliveryNoteApp1,
+                            DeliveryNoteApp2 = deliveryNoteApp2,
+                            DeliveryNoteNotes = deliveryNoteNotes,
+                            TransportCode = transportCode,
+                            Memo = memo
+                        };
+                        _context.Outbounds.Add(outbound);
                         await _context.SaveChangesAsync();
+
+                        if (hasStock && warehouseId.HasValue)
+                        {
+                            int calculatedCaseCount = await _cheapestWarehouseService.AllocateInventoryAsync(
+                                outbound.OutboundId, warehouseId.Value, shipperId, productCode, itemUnits, outbound.ScheduledOutboundDate);
+                            
+                            outbound.CaseCount = calculatedCaseCount;
+
+                            int unitWeight = is30KgFixed ? 30 : (targetProduct?.Weight ?? 0);
+                            outbound.OutboundWeight = unitWeight * calculatedCaseCount;
+
+                            _context.Outbounds.Update(outbound);
+                            await _context.SaveChangesAsync();
+                        }
+
+                        importedCount++;
                     }
 
-                    importedCount++;
-                }
+                    shippingInstruction.CarrierId = lastAdoptedCarrierId;
+                    shippingInstruction.ImportedCount = importedCount;
+                    _context.ShippingInstructions.Update(shippingInstruction);
 
-                shippingInstruction.ImportedCount = importedCount;
-                _context.ShippingInstructions.Update(shippingInstruction);
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    totalImported = importedCount;
+                });
 
-                TempData["SuccessMessage"] = $"出荷指示ファイルからの読込が完了しました。（出荷指示グループ: {groupCode}, 件数: {importedCount}件）";
+                TempData["SuccessMessage"] = $"出荷指示ファイルからの読込が完了しました。（出荷指示グループ: {groupCode}, 件数: {totalImported}件）";
                 return RedirectToAction(nameof(ShippingInstructionList));
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"出荷指示読込エラー: {detail}";
+                string rawDetail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                string friendlyMessage = rawDetail.Contains("SqlServerRetryingExecutionStrategy")
+                    ? "データベースのリトライ戦略による制限が発生しました。再度実行してください。"
+                    : rawDetail;
+                TempData["ErrorMessage"] = $"出荷指示読込エラー: {friendlyMessage}";
                 return RedirectToAction(nameof(ImportInstruction));
             }
         }
@@ -703,6 +710,7 @@ namespace RouteXWms.Controllers
 
             var query = _context.ShippingInstructions
                 .Include(s => s.Shipper)
+                .Include(s => s.Project)
                 .Include(s => s.Carrier)
                 .Include(s => s.Outbounds)
                 .AsQueryable();
@@ -733,6 +741,7 @@ namespace RouteXWms.Controllers
                     ShippingInstructionGroup = s.ShippingInstructionGroup,
                     FileName = s.FileName,
                     ShipperName = s.Shipper?.ShipperName ?? "-",
+                    ProjectName = s.Project?.ProjectName ?? "-",
                     CarrierName = s.Carrier?.CarrierName ?? "-",
                     ImportedCount = s.ImportedCount,
                     CreatedAt = s.CreatedAt,
@@ -862,29 +871,36 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(ShippingInstructionList));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
             try
             {
-                foreach (var outbound in activeOutbounds)
+                await strategy.ExecuteAsync(async () =>
                 {
-                    await _cheapestWarehouseService.ReleaseInventoryAllocationAsync(outbound.OutboundId);
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    foreach (var outbound in activeOutbounds)
+                    {
+                        await _cheapestWarehouseService.ReleaseInventoryAllocationAsync(outbound.OutboundId);
 
-                    outbound.Status = 999;
-                    outbound.IsDeleted = true;
-                }
+                        outbound.Status = 999;
+                        outbound.IsDeleted = true;
+                    }
 
-                instruction.Status = 999;
-                instruction.IsDeleted = true;
+                    instruction.Status = 999;
+                    instruction.IsDeleted = true;
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
 
                 TempData["SuccessMessage"] = $"出荷指示（出荷指示グループ: {instruction.ShippingInstructionGroup}）の取り消しが完了しました。紐づく出庫データが削除され、在庫が元に戻りました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                TempData["ErrorMessage"] = $"出荷指示取り消し処理中にエラーが発生しました: {ex.Message}";
+                string rawDetail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                string friendlyMessage = rawDetail.Contains("SqlServerRetryingExecutionStrategy")
+                    ? "データベースのリトライ戦略による制限が発生しました。再度実行してください。"
+                    : rawDetail;
+                TempData["ErrorMessage"] = $"出荷指示取り消し処理中にエラーが発生しました: {friendlyMessage}";
             }
 
             return RedirectToAction(nameof(ShippingInstructionList));
@@ -1264,9 +1280,10 @@ namespace RouteXWms.Controllers
             var currentShippingClass = await _context.ShippingClasses.FirstOrDefaultAsync(s => s.ShippingClassId == outbound.ShippingType);
             int currentRateTableType = currentShippingClass?.RateTableType ?? 0;
 
-            var rateMappings = await _context.WarehouseDistanceRates
+            var projectIds = await _context.Projects.Where(p => p.ShipperId == outbound.ShipperId && !p.IsDeleted).Select(p => p.ProjectId).ToListAsync();
+            var rateMappings = await _context.ProjectWarehouseFreightTables
                 .Include(w => w.FreightTable)
-                .Where(w => w.FreightTable!.CarrierId == outbound.CarrierId && !w.IsDeleted)
+                .Where(w => projectIds.Contains(w.ProjectId) && w.FreightTable!.CarrierId == outbound.CarrierId && !w.IsDeleted)
                 .ToListAsync();
 
             var mappedWarehouseIds = rateMappings.Select(w => w.WarehouseId).Distinct().ToList();
@@ -1591,19 +1608,20 @@ namespace RouteXWms.Controllers
                 return BadRequest("選択された倉庫が存在しません。");
             }
 
-            WarehouseDistanceRate? rateMapping = null;
+            var projectIds = await _context.Projects.Where(p => p.ShipperId == outbound.ShipperId && !p.IsDeleted).Select(p => p.ProjectId).ToListAsync();
+            ProjectWarehouseFreightTable? rateMapping = null;
             if (freightTableId.HasValue && freightTableId != Guid.Empty)
             {
-                rateMapping = await _context.WarehouseDistanceRates
+                rateMapping = await _context.ProjectWarehouseFreightTables
                     .Include(w => w.FreightTable)
-                    .FirstOrDefaultAsync(w => w.WarehouseId == warehouseId && w.FreightTableId == freightTableId.Value && !w.IsDeleted);
+                    .FirstOrDefaultAsync(w => projectIds.Contains(w.ProjectId) && w.WarehouseId == warehouseId && w.FreightTableId == freightTableId.Value && !w.IsDeleted);
             }
 
             if (rateMapping == null)
             {
-                rateMapping = await _context.WarehouseDistanceRates
+                rateMapping = await _context.ProjectWarehouseFreightTables
                     .Include(w => w.FreightTable)
-                    .FirstOrDefaultAsync(w => w.WarehouseId == warehouseId && w.FreightTable!.CarrierId == outbound.CarrierId && !w.IsDeleted);
+                    .FirstOrDefaultAsync(w => projectIds.Contains(w.ProjectId) && w.WarehouseId == warehouseId && w.FreightTable!.CarrierId == outbound.CarrierId && !w.IsDeleted);
             }
 
             if (rateMapping?.FreightTable == null)
@@ -1698,53 +1716,60 @@ namespace RouteXWms.Controllers
                 return BadRequest($"在庫が不足しています（現在の有効在庫: {availablePieces}個）。他の倉庫を選択してください。");
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
             try
             {
-                await _cheapestWarehouseService.ReleaseInventoryAllocationAsync(outbound.OutboundId);
-
-                int newCaseCount = await _cheapestWarehouseService.AllocateInventoryAsync(
-                    outbound.OutboundId, warehouseId, outbound.ShipperId, outbound.ProductId, outbound.TotalPieces, outbound.ScheduledOutboundDate);
-
-                var shippingClass = await _context.ShippingClasses
-                    .FirstOrDefaultAsync(s => s.CarrierId == outbound.CarrierId && s.RateTableType == rateTableType && !s.IsDeleted)
-                    ?? await _context.ShippingClasses.FirstOrDefaultAsync(s => s.CarrierId == outbound.CarrierId && !s.IsDeleted);
-
-                if (shippingClass != null)
+                await strategy.ExecuteAsync(async () =>
                 {
-                    outbound.ShippingType = shippingClass.ShippingClassId;
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    await _cheapestWarehouseService.ReleaseInventoryAllocationAsync(outbound.OutboundId);
 
-                    var area = await _context.CollectionAreas
-                        .FirstOrDefaultAsync(a => a.ShipperId == outbound.ShipperId 
-                                               && a.ShippingClassId == shippingClass.ShippingClassId 
-                                               && a.WarehouseId == warehouseId 
-                                               && !a.IsDeleted);
-                    outbound.SenderCode = area?.SenderCode;
-                }
+                    int newCaseCount = await _cheapestWarehouseService.AllocateInventoryAsync(
+                        outbound.OutboundId, warehouseId, outbound.ShipperId, outbound.ProductId, outbound.TotalPieces, outbound.ScheduledOutboundDate);
 
-                outbound.WarehouseId = warehouseId;
-                outbound.CaseCount = newCaseCount;
-                outbound.Price = adoptedPrice;
+                    var shippingClass = await _context.ShippingClasses
+                        .FirstOrDefaultAsync(s => s.CarrierId == outbound.CarrierId && s.RateTableType == rateTableType && !s.IsDeleted)
+                        ?? await _context.ShippingClasses.FirstOrDefaultAsync(s => s.CarrierId == outbound.CarrierId && !s.IsDeleted);
 
-                var validProduct = await _context.Products.FirstOrDefaultAsync(p => p.ProductId == outbound.ProductId);
-                int unitWeight = (validProduct?.Weight ?? 0);
-                outbound.OutboundWeight = unitWeight > 0 ? (unitWeight * outbound.TotalPieces) : (30 * newCaseCount);
+                    if (shippingClass != null)
+                    {
+                        outbound.ShippingType = shippingClass.ShippingClassId;
 
-                if (outbound.Status == 801)
-                {
-                    outbound.Status = 1;
-                }
+                        var area = await _context.CollectionAreas
+                            .FirstOrDefaultAsync(a => a.ShipperId == outbound.ShipperId 
+                                                   && a.ShippingClassId == shippingClass.ShippingClassId 
+                                                   && a.WarehouseId == warehouseId 
+                                                   && !a.IsDeleted);
+                        outbound.SenderCode = area?.SenderCode;
+                    }
 
-                _context.Outbounds.Update(outbound);
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    outbound.WarehouseId = warehouseId;
+                    outbound.CaseCount = newCaseCount;
+                    outbound.Price = adoptedPrice;
+
+                    var validProduct = await _context.Products.FirstOrDefaultAsync(p => p.ProductId == outbound.ProductId);
+                    int unitWeight = (validProduct?.Weight ?? 0);
+                    outbound.OutboundWeight = unitWeight > 0 ? (unitWeight * outbound.TotalPieces) : (30 * newCaseCount);
+
+                    if (outbound.Status == 801)
+                    {
+                        outbound.Status = 1;
+                    }
+
+                    _context.Outbounds.Update(outbound);
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
 
                 TempData["SuccessMessage"] = "出荷倉庫を決定し、在庫を引き当てました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                return StatusCode(500, $"倉庫設定処理中にエラーが発生しました: {ex.Message}");
+                string rawDetail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                string friendlyMessage = rawDetail.Contains("SqlServerRetryingExecutionStrategy")
+                    ? "データベースのリトライ戦略による制限が発生しました。再度実行してください。"
+                    : rawDetail;
+                return StatusCode(500, $"倉庫設定処理中にエラーが発生しました: {friendlyMessage}");
             }
 
             return RedirectToAction(nameof(ConfirmWarehouse));
@@ -1782,8 +1807,9 @@ namespace RouteXWms.Controllers
             int? actualDistanceKm = null;
             if (!string.IsNullOrEmpty(cityCode))
             {
-                var rateMapping = await _context.WarehouseDistanceRates
-                    .FirstOrDefaultAsync(w => w.WarehouseId == warehouseId && w.FreightTable!.CarrierId == outbound.CarrierId && !w.IsDeleted);
+                var projectIds = await _context.Projects.Where(p => p.ShipperId == outbound.ShipperId && !p.IsDeleted).Select(p => p.ProjectId).ToListAsync();
+                var rateMapping = await _context.ProjectWarehouseFreightTables
+                    .FirstOrDefaultAsync(w => projectIds.Contains(w.ProjectId) && w.WarehouseId == warehouseId && w.FreightTable!.CarrierId == outbound.CarrierId && !w.IsDeleted);
 
                 if (rateMapping != null)
                 {

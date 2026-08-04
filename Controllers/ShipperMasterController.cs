@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using RouteXWms.Data;
 using RouteXWms.Models;
 using RouteXWms.Services;
+using RouteXWms.Helpers;
 
 namespace RouteXWms.Controllers
 {
@@ -204,80 +205,235 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                for (int i = 1; i < rows.Count; i++)
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 5) continue;
-
-                    string idStr = r[0];
-                    string name = r[1];
-                    string addr1 = r[2];
-                    string addr2 = r[3];
-                    string tel = r[4];
-
-                    if (string.IsNullOrWhiteSpace(idStr))
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        var newShipper = new Shipper
+                        var r = rows[i];
+                        if (r.Length < 5) continue;
+
+                        string idStr = r[0];
+                        string name = r[1];
+                        string addr1 = r[2];
+                        string addr2 = r[3];
+                        string tel = r[4];
+
+                        if (string.IsNullOrWhiteSpace(idStr))
                         {
-                            ShipperId = Guid.NewGuid(),
-                            ShipperName = name,
-                            ShipperAddress1 = addr1,
-                            ShipperAddress2 = addr2,
-                            ShipperTel = tel
-                        };
-                        _context.Shippers.Add(newShipper);
-                    }
-                    else
-                    {
-                        if (!Guid.TryParse(idStr, out var id))
-                        {
-                            throw new Exception($"{i + 1}行目: 荷主IDのフォーマットが不正です。");
-                        }
-                        var existing = await _context.Shippers.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.ShipperId == id)
-                                    ?? _context.Shippers.Local.FirstOrDefault(s => s.ShipperId == id);
-                        if (existing == null)
-                        {
-                            if (!createIfNotFound)
+                            var newShipper = new Shipper
                             {
-                                throw new Exception($"{i + 1}行目: 指定された荷主ID ({idStr}) のレコードが存在しません。");
-                            }
-                            existing = new Shipper
-                            {
-                                ShipperId = id,
+                                ShipperId = Guid.NewGuid(),
                                 ShipperName = name,
                                 ShipperAddress1 = addr1,
                                 ShipperAddress2 = addr2,
                                 ShipperTel = tel
                             };
-                            _context.Shippers.Add(existing);
+                            _context.Shippers.Add(newShipper);
                         }
                         else
                         {
-                            existing.ShipperName = name;
-                            existing.ShipperAddress1 = addr1;
-                            existing.ShipperAddress2 = addr2;
-                            existing.ShipperTel = tel;
-                            existing.IsDeleted = false;
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 荷主IDのフォーマットが不正です。({idStr})");
+                            }
+                            var existing = await _context.Shippers.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.ShipperId == id)
+                                        ?? _context.Shippers.Local.FirstOrDefault(s => s.ShipperId == id);
+                            if (existing == null)
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された荷主ID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new Shipper
+                                {
+                                    ShipperId = id,
+                                    ShipperName = name,
+                                    ShipperAddress1 = addr1,
+                                    ShipperAddress2 = addr2,
+                                    ShipperTel = tel
+                                };
+                                _context.Shippers.Add(existing);
+                            }
+                            else
+                            {
+                                existing.ShipperName = name;
+                                existing.ShipperAddress1 = addr1;
+                                existing.ShipperAddress2 = addr2;
+                                existing.ShipperTel = tel;
+                                existing.IsDeleted = false;
+                            }
                         }
                     }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
                 TempData["SuccessMessage"] = "CSVのインポートが完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"インポートエラー: {detail}";
+                TempData["ErrorMessage"] = $"インポートエラー: {ErrorHelper.ToUserFriendlyMessage(ex)}";
             }
 
             return RedirectToAction(nameof(Index));
+        }
+
+        /// <summary>
+        /// SSE ストリーミングを用いて荷主マスターをリアルタイム進捗表示付きで高パフォーマンスに一括インポートします。
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task ImportCsvStream(IFormFile csvFile, bool createIfNotFound = false)
+        {
+            Response.ContentType = "text/event-stream";
+            Func<object, Task> sendProgressAsync = async (data) =>
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                await Response.WriteAsync($"data: {json}\n\n");
+                await Response.Body.FlushAsync();
+            };
+
+            if (csvFile == null || csvFile.Length == 0)
+            {
+                await sendProgressAsync(new { status = "error", message = "CSVファイルを選択してください。" });
+                return;
+            }
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                // フェーズ1: ファイル読み込み
+                await sendProgressAsync(new { status = "phase", title = "【1/4】ファイル読み込み中...", message = $"ファイル名: {csvFile.FileName} ({csvFile.Length:N0} bytes) を解析中..." });
+                var rows = await CsvService.ReadCsvAsync(csvFile);
+
+                // フェーズ2: 件数・構造検証
+                int total = rows.Count - 1;
+                await sendProgressAsync(new { status = "phase", title = "【2/4】件数チェック・構文検証中...", message = $"総データ件数: {total:N0} 件 の構文を検証中..." });
+
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
+                {
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+
+                    // フェーズ3: DB事前検証
+                    await sendProgressAsync(new { status = "phase", title = "【3/4】DBマスター事前照合中...", message = "既存の荷主マスター情報を一括照合キャッシュ中..." });
+                    var existingMap = await _context.Shippers.IgnoreQueryFilters().ToDictionaryAsync(s => s.ShipperId);
+
+                    // フェーズ4: データインポート・書き込み開始
+                    await sendProgressAsync(new { status = "start", title = "【4/4】DB一括更新中...", current = 0, total = total, currentKey = "" });
+
+                    int processedCount = 0;
+                    int batchSize = 1000;
+
+                    for (int i = 1; i < rows.Count; i++)
+                    {
+                        var r = rows[i];
+                        if (r.Length < 2) continue;
+
+                        string idStr = (r[0] ?? "").Trim();
+                        string name = (r[1] ?? "").Trim();
+                        string addr1 = r.Length > 2 ? (r[2] ?? "").Trim() : "";
+                        string addr2 = r.Length > 3 ? (r[3] ?? "").Trim() : "";
+                        string tel = r.Length > 4 ? (r[4] ?? "").Trim() : "";
+
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+
+                        if (string.IsNullOrWhiteSpace(idStr))
+                        {
+                            var newShipper = new Shipper
+                            {
+                                ShipperId = Guid.NewGuid(),
+                                ShipperName = name,
+                                ShipperAddress1 = addr1,
+                                ShipperAddress2 = addr2,
+                                ShipperTel = tel
+                            };
+                            _context.Shippers.Add(newShipper);
+                        }
+                        else
+                        {
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 荷主IDのフォーマットが不正です。({idStr})");
+                            }
+
+                            if (!existingMap.TryGetValue(id, out var existing))
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された荷主ID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new Shipper
+                                {
+                                    ShipperId = id,
+                                    ShipperName = name,
+                                    ShipperAddress1 = addr1,
+                                    ShipperAddress2 = addr2,
+                                    ShipperTel = tel
+                                };
+                                _context.Shippers.Add(existing);
+                                existingMap[id] = existing;
+                            }
+                            else
+                            {
+                                existing.ShipperName = name;
+                                existing.ShipperAddress1 = addr1;
+                                existing.ShipperAddress2 = addr2;
+                                existing.ShipperTel = tel;
+                                existing.IsDeleted = false;
+                            }
+                        }
+
+                        processedCount++;
+
+                        if (processedCount % 100 == 0 || i == rows.Count - 1)
+                        {
+                            double elapsedSec = stopwatch.Elapsed.TotalSeconds;
+                            int speed = elapsedSec > 0 ? (int)(processedCount / elapsedSec) : processedCount;
+                            await sendProgressAsync(new { 
+                                status = "processing", 
+                                title = "【4/4】DB一括更新中...",
+                                current = processedCount, 
+                                total = total, 
+                                speed = speed,
+                                elapsed = elapsedSec,
+                                currentKey = $"荷主名: {name}" 
+                            });
+                        }
+
+                        if (processedCount % batchSize == 0)
+                        {
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    stopwatch.Stop();
+                    double totalSec = stopwatch.Elapsed.TotalSeconds;
+                    await sendProgressAsync(new { 
+                        status = "completed", 
+                        current = processedCount, 
+                        total = total, 
+                        elapsed = totalSec,
+                        message = $"荷主マスターのインポートが完了しました。（全 {processedCount:N0} 件 / 処理時間: {totalSec:F1}秒）" 
+                    });
+                });
+            }
+            catch (Exception ex)
+            {
+                await sendProgressAsync(new { status = "error", message = $"インポートエラー: {ErrorHelper.ToUserFriendlyMessage(ex)}" });
+            }
         }
     }
 }

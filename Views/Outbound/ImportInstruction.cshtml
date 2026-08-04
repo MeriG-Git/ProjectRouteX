@@ -1,7 +1,6 @@
 @{
     ViewData["Title"] = "出荷指示読込";
     var shippers = ViewBag.Shippers as IEnumerable<RouteXWms.Models.Shipper> ?? Enumerable.Empty<RouteXWms.Models.Shipper>();
-    var carriers = ViewBag.Carriers as IEnumerable<RouteXWms.Models.Carrier> ?? Enumerable.Empty<RouteXWms.Models.Carrier>();
 }
 
 @if (TempData["ErrorMessage"] != null)
@@ -22,7 +21,7 @@
 
     <div class="alert alert-info border-info text-white mb-4" style="background: rgba(14, 165, 233, 0.15);">
         <i class="bi bi-info-circle me-2 fs-5"></i>
-        出荷指示書Excelを取り込み、各受取先郵便番号・商品コード・在庫状況から**最安値の輸送運賃となる倉庫を自動引当**します。
+        出荷指示書Excelを取り込み、指定された案件に紐づく料金表・在庫状況から**最安値の輸送運賃となる倉庫・運送会社を自動選定**します。
     </div>
 
     <form asp-action="ImportInstruction" method="post" enctype="multipart/form-data">
@@ -30,7 +29,7 @@
 
         <div class="mb-4">
             <label class="form-label">荷主 <span class="text-danger">*</span></label>
-            <select name="shipperId" class="form-select bg-dark text-white border-secondary" required>
+            <select name="shipperId" id="shipperSelect" class="form-select bg-dark text-white border-secondary" required>
                 <option value="">-- 対象荷主を選択してください --</option>
                 @foreach (var s in shippers)
                 {
@@ -40,13 +39,9 @@
         </div>
 
         <div class="mb-4">
-            <label class="form-label">運送会社 <span class="text-danger">*</span></label>
-            <select name="carrierId" class="form-select bg-dark text-white border-secondary" required>
-                <option value="">-- 対象運送会社を選択してください --</option>
-                @foreach (var c in carriers)
-                {
-                    <option value="@c.CarrierId">@c.CarrierName</option>
-                }
+            <label class="form-label">案件 <span class="text-danger">*</span></label>
+            <select name="projectId" id="projectSelect" class="form-select bg-dark text-white border-secondary" disabled required>
+                <option value="">-- 荷主を先に選択してください --</option>
             </select>
         </div>
 
@@ -88,3 +83,41 @@
         </div>
     </form>
 </div>
+
+@section Scripts {
+    <script>
+        const projectsData = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(ViewBag.Projects ?? new object[] { }));
+        const shipperSelect = document.getElementById('shipperSelect');
+        const projectSelect = document.getElementById('projectSelect');
+
+        shipperSelect.addEventListener('change', function () {
+            const selectedShipperId = this.value;
+            projectSelect.innerHTML = '';
+
+            if (!selectedShipperId) {
+                projectSelect.disabled = true;
+                projectSelect.innerHTML = '<option value="">-- 荷主を先に選択してください --</option>';
+                return;
+            }
+
+            const filteredProjects = projectsData.filter(p => {
+                const sId = p.ShipperId || p.shipperId;
+                return sId && sId.toLowerCase() === selectedShipperId.toLowerCase();
+            });
+
+            if (filteredProjects.length === 0) {
+                projectSelect.disabled = true;
+                projectSelect.innerHTML = '<option value="">-- 該当する案件が登録されていません --</option>';
+            } else {
+                projectSelect.disabled = false;
+                projectSelect.innerHTML = '<option value="">-- 対象案件を選択してください --</option>';
+                filteredProjects.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.ProjectId || p.projectId;
+                    opt.textContent = p.ProjectName || p.projectName;
+                    projectSelect.appendChild(opt);
+                });
+            }
+        });
+    </script>
+}

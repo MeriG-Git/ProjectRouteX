@@ -107,7 +107,8 @@ namespace RouteXWms.Data
                             [file_name] nvarchar(256) NULL,
                             [file_size] bigint NOT NULL DEFAULT 0,
                             [shipper_id] uniqueidentifier NOT NULL,
-                            [carrier_id] uniqueidentifier NOT NULL,
+                            [project_id] uniqueidentifier NULL,
+                            [carrier_id] uniqueidentifier NULL,
                             [weight_spec] varchar(32) NULL,
                             [imported_count] int NOT NULL DEFAULT 0,
                             [status] int NOT NULL DEFAULT 1,
@@ -118,8 +119,18 @@ namespace RouteXWms.Data
                             [updated_at] datetime2 NULL,
                             CONSTRAINT [PK_t_shipping_instruction] PRIMARY KEY ([shipping_instruction_id]),
                             CONSTRAINT [FK_t_shipping_instruction_m_shipper_shipper_id] FOREIGN KEY ([shipper_id]) REFERENCES [m_shipper] ([shipper_id]),
+                            CONSTRAINT [FK_t_shipping_instruction_t_project_project_id] FOREIGN KEY ([project_id]) REFERENCES [t_project] ([project_id]),
                             CONSTRAINT [FK_t_shipping_instruction_m_carrier_carrier_id] FOREIGN KEY ([carrier_id]) REFERENCES [m_carrier] ([carrier_id])
                         );
+                    END
+                    ELSE
+                    BEGIN
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('t_shipping_instruction') AND name = 'project_id')
+                        BEGIN
+                            ALTER TABLE [t_shipping_instruction] ADD [project_id] uniqueidentifier NULL;
+                            ALTER TABLE [t_shipping_instruction] ADD CONSTRAINT [FK_t_shipping_instruction_t_project_project_id] FOREIGN KEY ([project_id]) REFERENCES [t_project] ([project_id]);
+                        END
+                        ALTER TABLE [t_shipping_instruction] ALTER COLUMN [carrier_id] uniqueidentifier NULL;
                     END
 
                     -- 出荷引当明細テーブルの作成
@@ -142,6 +153,81 @@ namespace RouteXWms.Data
                             CONSTRAINT [FK_t_outbound_allocation_t_inventory_inventory_id] FOREIGN KEY ([inventory_id]) REFERENCES [t_inventory] ([inventory_id])
                         );
                     END
+
+                    -- 旧廃止テーブル (m_warehouse_distance_rate) の完全物理削除 (DROP)
+                    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('m_warehouse_distance_rate') AND type = 'U')
+                    BEGIN
+                        DROP TABLE [m_warehouse_distance_rate];
+                    END
+
+                    -- 案件テーブル旧名 (m_project) のリネーム移行 (m_ -> t_)
+                    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('m_project_warehouse_freight_table') AND type = 'U')
+                    BEGIN
+                        EXEC sp_rename 'm_project_warehouse_freight_table', 't_project_warehouse_freight_table';
+                    END
+                    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('m_project_warehouse') AND type = 'U')
+                    BEGIN
+                        EXEC sp_rename 'm_project_warehouse', 't_project_warehouse';
+                    END
+                    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('m_project') AND type = 'U')
+                    BEGIN
+                        EXEC sp_rename 'm_project', 't_project';
+                    END
+
+                    -- 案件管理テーブル (t_project) の作成
+                    IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('t_project') AND type = 'U')
+                    BEGIN
+                        CREATE TABLE [t_project] (
+                            [project_id] uniqueidentifier NOT NULL,
+                            [shipper_id] uniqueidentifier NOT NULL,
+                            [project_code] varchar(32) NULL,
+                            [project_name] nvarchar(64) NOT NULL,
+                            [remarks] nvarchar(256) NULL,
+                            [is_deleted] bit NOT NULL DEFAULT 0,
+                            [created_by] nvarchar(64) NULL,
+                            [created_at] datetime2 NULL,
+                            [updated_by] nvarchar(64) NULL,
+                            [updated_at] datetime2 NULL,
+                            CONSTRAINT [PK_t_project] PRIMARY KEY ([project_id]),
+                            CONSTRAINT [FK_t_project_m_shipper_shipper_id] FOREIGN KEY ([shipper_id]) REFERENCES [m_shipper] ([shipper_id])
+                        );
+                    END
+
+                    -- 案件利用倉庫テーブル (t_project_warehouse) の作成
+                    IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('t_project_warehouse') AND type = 'U')
+                    BEGIN
+                        CREATE TABLE [t_project_warehouse] (
+                            [project_id] uniqueidentifier NOT NULL,
+                            [warehouse_id] uniqueidentifier NOT NULL,
+                            [is_deleted] bit NOT NULL DEFAULT 0,
+                            [created_by] nvarchar(64) NULL,
+                            [created_at] datetime2 NULL,
+                            [updated_by] nvarchar(64) NULL,
+                            [updated_at] datetime2 NULL,
+                            CONSTRAINT [PK_t_project_warehouse] PRIMARY KEY ([project_id], [warehouse_id]),
+                            CONSTRAINT [FK_t_project_warehouse_t_project_project_id] FOREIGN KEY ([project_id]) REFERENCES [t_project] ([project_id]),
+                            CONSTRAINT [FK_t_project_warehouse_m_warehouse_warehouse_id] FOREIGN KEY ([warehouse_id]) REFERENCES [m_warehouse] ([warehouse_id])
+                        );
+                    END
+
+                    -- 案件倉庫料金表テーブル (t_project_warehouse_freight_table) の作成
+                    IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('t_project_warehouse_freight_table') AND type = 'U')
+                    BEGIN
+                        CREATE TABLE [t_project_warehouse_freight_table] (
+                            [project_id] uniqueidentifier NOT NULL,
+                            [warehouse_id] uniqueidentifier NOT NULL,
+                            [freight_table_id] uniqueidentifier NOT NULL,
+                            [is_deleted] bit NOT NULL DEFAULT 0,
+                            [created_by] nvarchar(64) NULL,
+                            [created_at] datetime2 NULL,
+                            [updated_by] nvarchar(64) NULL,
+                            [updated_at] datetime2 NULL,
+                            CONSTRAINT [PK_t_project_warehouse_freight_table] PRIMARY KEY ([project_id], [warehouse_id], [freight_table_id]),
+                            CONSTRAINT [FK_t_project_warehouse_freight_table_t_project_project_id] FOREIGN KEY ([project_id]) REFERENCES [t_project] ([project_id]),
+                            CONSTRAINT [FK_t_project_warehouse_freight_table_m_warehouse_warehouse_id] FOREIGN KEY ([warehouse_id]) REFERENCES [m_warehouse] ([warehouse_id]),
+                            CONSTRAINT [FK_t_project_warehouse_freight_table_m_freight_table_freight_table_id] FOREIGN KEY ([freight_table_id]) REFERENCES [m_freight_table] ([freight_table_id])
+                        );
+                    END
                 ");
 
                 // 既存の運賃表マスターへのデフォルト運送会社IDの設定
@@ -159,6 +245,7 @@ namespace RouteXWms.Data
                     IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('m_freight_table') AND name = 'carrier_id')
                     BEGIN
                         ALTER TABLE [m_freight_table] ALTER COLUMN [carrier_id] uniqueidentifier NOT NULL;
+                    END
                 ");
             }
             catch (Exception ex)
@@ -200,233 +287,227 @@ namespace RouteXWms.Data
                 }
             }
 
-            // 2. 初期管理者ユーザー（WMSAdmin）の作成・パスワードハッシュ化移行
-            var adminAccount = context.Accounts.FirstOrDefault(a => a.AccountName == "WMSAdmin");
+            // 2. ロール・権限管理用テーブル自律作成 & カラム拡張
+            if (context.Database.IsSqlServer())
+            {
+                try
+                {
+                    context.Database.ExecuteSqlRaw(@"
+                        -- t_account への display_name, is_active 追加
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('t_account') AND name = 'display_name')
+                        BEGIN
+                            ALTER TABLE [t_account] ADD [display_name] nvarchar(64) NULL;
+                        END
+
+                        UPDATE [t_account] SET [display_name] = N'システム管理者' WHERE [display_name] IS NULL;
+
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('t_account') AND name = 'is_active')
+                        BEGIN
+                            ALTER TABLE [t_account] ADD [is_active] bit NOT NULL DEFAULT 1;
+                        END
+
+                        -- t_role テーブル作成
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('t_role') AND type = 'U')
+                        BEGIN
+                            CREATE TABLE [t_role] (
+                                [role_id] int IDENTITY(1,1) NOT NULL,
+                                [role_code] varchar(32) NOT NULL,
+                                [role_name] nvarchar(64) NOT NULL,
+                                [description] nvarchar(256) NULL,
+                                [is_deleted] bit NOT NULL DEFAULT 0,
+                                [created_by] varchar(64) NULL,
+                                [created_at] datetime2 NULL,
+                                [updated_by] varchar(64) NULL,
+                                [updated_at] datetime2 NULL,
+                                CONSTRAINT [PK_t_role] PRIMARY KEY ([role_id]),
+                                CONSTRAINT [UQ_t_role_code] UNIQUE ([role_code])
+                            );
+                        END
+
+                        -- t_permission テーブル作成
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('t_permission') AND type = 'U')
+                        BEGIN
+                            CREATE TABLE [t_permission] (
+                                [permission_id] int IDENTITY(1,1) NOT NULL,
+                                [permission_code] varchar(64) NOT NULL,
+                                [category] nvarchar(64) NOT NULL,
+                                [permission_name] nvarchar(64) NOT NULL,
+                                [description] nvarchar(256) NULL,
+                                [is_deleted] bit NOT NULL DEFAULT 0,
+                                [created_by] varchar(64) NULL,
+                                [created_at] datetime2 NULL,
+                                [updated_by] varchar(64) NULL,
+                                [updated_at] datetime2 NULL,
+                                CONSTRAINT [PK_t_permission] PRIMARY KEY ([permission_id]),
+                                CONSTRAINT [UQ_t_permission_code] UNIQUE ([permission_code])
+                            );
+                        END
+
+                        -- t_account_role テーブル作成
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('t_account_role') AND type = 'U')
+                        BEGIN
+                            CREATE TABLE [t_account_role] (
+                                [account_name] varchar(32) NOT NULL,
+                                [role_id] int NOT NULL,
+                                CONSTRAINT [PK_t_account_role] PRIMARY KEY ([account_name], [role_id]),
+                                CONSTRAINT [FK_t_account_role_t_account] FOREIGN KEY ([account_name]) REFERENCES [t_account] ([account_name]),
+                                CONSTRAINT [FK_t_account_role_t_role] FOREIGN KEY ([role_id]) REFERENCES [t_role] ([role_id])
+                            );
+                        END
+
+                        -- t_role_permission テーブル作成
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('t_role_permission') AND type = 'U')
+                        BEGIN
+                            CREATE TABLE [t_role_permission] (
+                                [role_id] int NOT NULL,
+                                [permission_id] int NOT NULL,
+                                CONSTRAINT [PK_t_role_permission] PRIMARY KEY ([role_id], [permission_id]),
+                                CONSTRAINT [FK_t_role_permission_t_role] FOREIGN KEY ([role_id]) REFERENCES [t_role] ([role_id]),
+                                CONSTRAINT [FK_t_role_permission_t_permission] FOREIGN KEY ([permission_id]) REFERENCES [t_permission] ([permission_id])
+                            );
+                        END
+                    ");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Schema ERROR] Role/Permission table creation failed: {ex.Message}");
+                }
+            }
+
+            // 3. ロール・パーミッション初期シードデータの自動投入
+            SeedRolesAndPermissions(context);
+
+            // 4. 初期管理者ユーザー（WMSAdmin）の作成・パスワードハッシュ化移行 & ロール紐付け
+            var adminAccount = context.Accounts.IgnoreQueryFilters().FirstOrDefault(a => a.AccountName == "WMSAdmin");
             if (adminAccount == null)
             {
-                context.Accounts.Add(new Account
+                adminAccount = new Account
                 {
                     AccountName = "WMSAdmin",
+                    DisplayName = "システム管理者",
                     Password = PasswordHelper.HashPassword("abc123$%&"),
-                    Role = 0, // 管理者権限
+                    Role = 0,
+                    IsActive = true,
                     CreatedBy = "SYSTEM",
                     CreatedAt = DateTime.Now,
                     UpdatedBy = "SYSTEM",
                     UpdatedAt = DateTime.Now,
                     IsDeleted = false
-                });
+                };
+                context.Accounts.Add(adminAccount);
                 context.SaveChanges();
             }
             else
             {
-                // プロジェクト名変更に伴うソルト変更に対応するため、初期管理者パスワードを確実に最新ハッシュに更新
                 adminAccount.Password = PasswordHelper.HashPassword("abc123$%&");
+                if (string.IsNullOrEmpty(adminAccount.DisplayName)) adminAccount.DisplayName = "システム管理者";
+                adminAccount.IsActive = true;
                 context.SaveChanges();
             }
 
-            // 3. サンプルマスターデータの作成（データが空の場合のみ登録）
-            if (!context.Shippers.Any())
+            // 初期管理者に SystemAdmin ロールを割り当て
+            var sysAdminRole = context.Roles.FirstOrDefault(r => r.RoleCode == "SystemAdmin");
+            if (sysAdminRole != null)
             {
-                // 荷主マスター
-                var shipper1 = new Shipper
+                var existingRoleMap = context.AccountRoles.FirstOrDefault(ar => ar.AccountName == "WMSAdmin" && ar.RoleId == sysAdminRole.RoleId);
+                if (existingRoleMap == null)
                 {
-                    ShipperId = Guid.NewGuid(),
-                    ShipperName = "YK商事株式会社",
-                    ShipperAddress1 = "東京都千代田区神田1-1-1",
-                    ShipperAddress2 = "YKビル 5F",
-                    ShipperTel = "03-1234-5678"
-                };
-                var shipper2 = new Shipper
-                {
-                    ShipperId = Guid.NewGuid(),
-                    ShipperName = "グローバルロジテック",
-                    ShipperAddress1 = "大阪府大阪市中央区本町2-2-2",
-                    ShipperAddress2 = "本町タワー 10F",
-                    ShipperTel = "06-9876-5432"
-                };
-                context.Shippers.AddRange(shipper1, shipper2);
-
-                // 倉庫マスター
-                var wh1 = new Warehouse
-                {
-                    WarehouseId = Guid.NewGuid(),
-                    WarehouseName = "東京第一倉庫",
-                    ZipCode = "1000001",
-                    Address = "東京都千代田区大手町1-1",
-                    Tel = "03-3333-4444"
-                };
-                var wh2 = new Warehouse
-                {
-                    WarehouseId = Guid.NewGuid(),
-                    WarehouseName = "成田物流センター",
-                    ZipCode = "2860101",
-                    Address = "千葉県成田市取香500",
-                    Tel = "0476-11-2233"
-                };
-                context.Warehouses.AddRange(wh1, wh2);
-
-                // 商品マスター
-                var product1 = new Product
-                {
-                    ProductId = "PRD00001",
-                    ProductName = "プレミアムドリップコーヒー 100P",
-                    JanCode = "4901234567890",
-                    Length = 30.5m,
-                    Width = 20.0m,
-                    Height = 15.0m,
-                    Weight = 3,
-                    Quantity = 200
-                };
-                var product2 = new Product
-                {
-                    ProductId = "PRD00002",
-                    ProductName = "有機オーガニック紅茶 50P",
-                    JanCode = "4901234567891",
-                    Length = 25.0m,
-                    Width = 18.0m,
-                    Height = 12.0m,
-                    Weight = 2,
-                    Quantity = 100
-                };
-                context.Products.AddRange(product1, product2);
-
-                // 運送会社マスター
-                var carrier1 = new Carrier
-                {
-                    CarrierId = Guid.NewGuid(),
-                    CarrierName = "ヤマト運輸"
-                };
-                var carrier2 = new Carrier
-                {
-                    CarrierId = Guid.NewGuid(),
-                    CarrierName = "佐川急便"
-                };
-                context.Carriers.AddRange(carrier1, carrier2);
-
-                // 郵便番号マスター
-                var zip1 = new ZipCode { ZipCodeValue = "1000001", PrefCode = "13", CityCode = "13101" };
-                var zip2 = new ZipCode { ZipCodeValue = "5300001", PrefCode = "27", CityCode = "27100" };
-                var zip3 = new ZipCode { ZipCodeValue = "2860101", PrefCode = "12", CityCode = "12211" };
-                context.ZipCodes.AddRange(zip1, zip2, zip3);
-
-                // 運賃表マスター
-                var distTable = new FreightTable
-                {
-                    FreightTableId = Guid.NewGuid(),
-                    RateName = "関東圏標準路線運賃表",
-                    CarrierId = carrier1.CarrierId,
-                    RateTableType = 2 // 路線運賃
-                };
-                context.FreightTables.Add(distTable);
-
-                // 距離別運賃マスター
-                var freight1 = new DistanceFreight
-                {
-                    FreightId = Guid.NewGuid(),
-                    FreightTableId = distTable.FreightTableId,
-                    DistanceKm = 15,
-                    Size = 2,
-                    Cost = 500,
-                    Price = 700
-                };
-                var freight2 = new DistanceFreight
-                {
-                    FreightId = Guid.NewGuid(),
-                    FreightTableId = distTable.FreightTableId,
-                    DistanceKm = 500,
-                    Size = 3,
-                    Cost = 1200,
-                    Price = 1600
-                };
-                context.DistanceFreights.AddRange(freight1, freight2);
-
-                // 距離マスター
-                var dist1 = new Distance
-                {
-                    FreightTableId = distTable.FreightTableId,
-                    CityCode = "13101",
-                    DistanceKm = 15
-                };
-                var dist2 = new Distance
-                {
-                    FreightTableId = distTable.FreightTableId,
-                    CityCode = "27100",
-                    DistanceKm = 500
-                };
-                context.Distances.AddRange(dist1, dist2);
-
-                // 倉庫距離掛率マスター
-                var whRate = new WarehouseDistanceRate
-                {
-                    WarehouseId = wh1.WarehouseId,
-                    FreightTableId = distTable.FreightTableId
-                };
-                context.WarehouseDistanceRates.Add(whRate);
-
-                context.SaveChanges();
+                    context.AccountRoles.Add(new AccountRole
+                    {
+                        AccountName = "WMSAdmin",
+                        RoleId = sysAdminRole.RoleId
+                    });
+                    context.SaveChanges();
+                }
             }
+        }
 
-            // 4. 47都道府県の個配運賃マスター初期設定
-            var indFreightTables = context.FreightTables.Where(f => f.RateTableType == 1 && !f.IsDeleted).ToList();
-            if (!indFreightTables.Any())
-            {
-                var carrier = context.Carriers.FirstOrDefault();
-                var indFreightTable = new FreightTable
-                {
-                    FreightTableId = Guid.NewGuid(),
-                    RateName = "個配標準運賃表",
-                    RateTableType = 1, // 個配運賃
-                    CarrierId = carrier?.CarrierId ?? Guid.NewGuid()
-                };
-                context.FreightTables.Add(indFreightTable);
-                context.SaveChanges();
-                indFreightTables.Add(indFreightTable);
-            }
+        /// <summary>
+        /// 初期ロール・パーミッションおよび紐付けデータの自動作成
+        /// </summary>
+        private static void SeedRolesAndPermissions(WmsDbContext context)
+        {
+            var now = DateTime.Now;
 
-            var prefList = new (string code, string name, int cost, int price)[]
+            // 1. パーミッション定義のシードデータ
+            var defaultPermissions = new List<Permission>
             {
-                ("01", "北海道", 730, 920), ("02", "青森県", 530, 650), ("03", "岩手県", 530, 650), ("04", "宮城県", 470, 620),
-                ("05", "秋田県", 530, 650), ("06", "山形県", 470, 620), ("07", "福島県", 470, 620), ("08", "茨城県", 470, 620),
-                ("09", "栃木県", 470, 620), ("10", "群馬県", 470, 620), ("11", "埼玉県", 470, 620), ("12", "千葉県", 470, 620),
-                ("13", "東京都", 470, 620), ("14", "神奈川県", 470, 620), ("15", "新潟県", 470, 620), ("16", "富山県", 470, 620),
-                ("17", "石川県", 470, 620), ("18", "福井県", 470, 620), ("19", "山梨県", 470, 620), ("20", "長野県", 470, 620),
-                ("21", "岐阜県", 470, 620), ("22", "静岡県", 470, 620), ("23", "愛知県", 470, 620), ("24", "三重県", 470, 620),
-                ("25", "滋賀県", 540, 650), ("26", "京都府", 540, 650), ("27", "大阪府", 540, 650), ("28", "兵庫県", 540, 650),
-                ("29", "奈良県", 540, 650), ("30", "和歌山県", 540, 650), ("31", "鳥取県", 600, 720), ("32", "島根県", 600, 720),
-                ("33", "岡山県", 600, 720), ("34", "広島県", 600, 720), ("35", "山口県", 600, 720), ("36", "徳島県", 670, 820),
-                ("37", "香川県", 670, 820), ("38", "愛媛県", 670, 820), ("39", "高知県", 670, 820), ("40", "福岡県", 670, 920),
-                ("41", "佐賀県", 730, 920), ("42", "長崎県", 730, 920), ("43", "熊本県", 800, 920), ("44", "大分県", 730, 920),
-                ("45", "宮崎県", 800, 920), ("46", "鹿児島県", 800, 920), ("47", "沖縄県", 0, 3150)
+                new Permission { Category = "システム管理", PermissionCode = "UserManagement:Manage", PermissionName = "ユーザー・権限管理", Description = "ユーザー作成・ロール・権限の設定権限" },
+                new Permission { Category = "マスター管理", PermissionCode = "Master:View", PermissionName = "マスター参照", Description = "全マスターの閲覧権限" },
+                new Permission { Category = "マスター管理", PermissionCode = "Master:Edit", PermissionName = "マスター編集", Description = "マスターの作成・変更・削除権限" },
+                new Permission { Category = "マスター管理", PermissionCode = "Master:Import", PermissionName = "マスターインポート", Description = "CSV/Excel一括インポート権限" },
+                new Permission { Category = "入荷業務", PermissionCode = "Inbound:View", PermissionName = "入荷参照", Description = "入荷予定・実績の照会権限" },
+                new Permission { Category = "入荷業務", PermissionCode = "Inbound:Edit", PermissionName = "入荷編集・検品", Description = "入荷予定作成・検品登録権限" },
+                new Permission { Category = "出荷業務", PermissionCode = "Outbound:View", PermissionName = "出荷参照", Description = "出荷指示・実績の照会権限" },
+                new Permission { Category = "出荷業務", PermissionCode = "Outbound:Edit", PermissionName = "出荷作業・編集", Description = "出荷指示登録・引当・作業権限" },
+                new Permission { Category = "出荷業務", PermissionCode = "Outbound:Ship", PermissionName = "出荷確定", Description = "出荷確定処理権限" },
+                new Permission { Category = "在庫・棚卸", PermissionCode = "Stock:View", PermissionName = "在庫参照", Description = "在庫一覧・履歴照会権限" },
+                new Permission { Category = "在庫・棚卸", PermissionCode = "Stock:Adjust", PermissionName = "在庫調整・棚卸", Description = "在庫調整・棚卸確定権限" }
             };
 
-            foreach (var table in indFreightTables)
+            foreach (var perm in defaultPermissions)
             {
-                var existingCodes = context.IndividualFreights
-                    .Where(i => i.FreightTableId == table.FreightTableId && !i.IsDeleted)
-                    .Select(i => i.PrefCode)
-                    .ToHashSet();
-
-                var newFreights = new List<IndividualFreight>();
-                foreach (var pref in prefList)
+                var existing = context.Permissions.IgnoreQueryFilters().FirstOrDefault(p => p.PermissionCode == perm.PermissionCode);
+                if (existing == null)
                 {
-                    if (!existingCodes.Contains(pref.code))
-                    {
-                        newFreights.Add(new IndividualFreight
-                        {
-                            IndividualFreightId = Guid.NewGuid(),
-                            FreightTableId = table.FreightTableId,
-                            PrefCode = pref.code,
-                            PrefName = pref.name,
-                            Cost = pref.cost,
-                            Price = pref.price,
-                            Size = 0,
-                            Weight = 0
-                        });
-                    }
+                    perm.CreatedBy = "SYSTEM";
+                    perm.CreatedAt = now;
+                    perm.UpdatedBy = "SYSTEM";
+                    perm.UpdatedAt = now;
+                    context.Permissions.Add(perm);
                 }
-                if (newFreights.Any())
+            }
+            context.SaveChanges();
+
+            // 2. ロール定義のシードデータ
+            var defaultRoles = new List<Role>
+            {
+                new Role { RoleCode = "SystemAdmin", RoleName = "システム管理者", Description = "すべての機能およびユーザー・権限管理を実行可能" },
+                new Role { RoleCode = "WarehouseManager", RoleName = "倉庫管理者", Description = "マスター編集・入出荷・在庫調整を含む倉庫全般の運用権限" },
+                new Role { RoleCode = "Operator", RoleName = "現場作業員", Description = "日常の入検品・出検品作業および在庫照会権限" },
+                new Role { RoleCode = "Viewer", RoleName = "閲覧専用", Description = "すべてのマスター・状況照会画面の参照のみ" }
+            };
+
+            foreach (var role in defaultRoles)
+            {
+                var existing = context.Roles.IgnoreQueryFilters().FirstOrDefault(r => r.RoleCode == role.RoleCode);
+                if (existing == null)
                 {
-                    context.IndividualFreights.AddRange(newFreights);
+                    role.CreatedBy = "SYSTEM";
+                    role.CreatedAt = now;
+                    role.UpdatedBy = "SYSTEM";
+                    role.UpdatedAt = now;
+                    context.Roles.Add(role);
+                }
+            }
+            context.SaveChanges();
+
+            // 3. ロールとパーミッションの自動マッピング
+            var allPermissions = context.Permissions.IgnoreQueryFilters().ToList();
+            var roles = context.Roles.IgnoreQueryFilters().ToList();
+
+            foreach (var role in roles)
+            {
+                List<string> targetCodes = role.RoleCode switch
+                {
+                    "SystemAdmin" => allPermissions.Select(p => p.PermissionCode).ToList(),
+                    "WarehouseManager" => allPermissions.Where(p => p.PermissionCode != "UserManagement:Manage").Select(p => p.PermissionCode).ToList(),
+                    "Operator" => new List<string> { "Master:View", "Inbound:View", "Inbound:Edit", "Outbound:View", "Outbound:Edit", "Outbound:Ship", "Stock:View", "Stock:Adjust" },
+                    "Viewer" => allPermissions.Where(p => p.PermissionCode.EndsWith(":View")).Select(p => p.PermissionCode).ToList(),
+                    _ => new List<string>()
+                };
+
+                foreach (var code in targetCodes)
+                {
+                    var perm = allPermissions.FirstOrDefault(p => p.PermissionCode == code);
+                    if (perm != null)
+                    {
+                        var rpExists = context.RolePermissions.Any(rp => rp.RoleId == role.RoleId && rp.PermissionId == perm.PermissionId);
+                        if (!rpExists)
+                        {
+                            context.RolePermissions.Add(new RolePermission { RoleId = role.RoleId, PermissionId = perm.PermissionId });
+                        }
+                    }
                 }
             }
             context.SaveChanges();

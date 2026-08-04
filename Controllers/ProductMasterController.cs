@@ -242,70 +242,196 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                for (int i = 1; i < rows.Count; i++)
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 8) continue;
-
-                    string id = r[0];
-                    string name = r[1];
-                    string jan = r[2];
-                    decimal.TryParse(r[3], out var len);
-                    decimal.TryParse(r[4], out var wid);
-                    decimal.TryParse(r[5], out var hei);
-                    int.TryParse(r[6], out var wgt);
-                    int.TryParse(r[7], out var qty);
-
-                    var existing = await _context.Products.IgnoreQueryFilters().FirstOrDefaultAsync(p => p.ProductId == id)
-                                ?? _context.Products.Local.FirstOrDefault(p => p.ProductId == id);
-                    if (existing == null)
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        if (!createIfNotFound)
+                        var r = rows[i];
+                        if (r.Length < 8) continue;
+
+                        string id = r[0];
+                        string name = r[1];
+                        string jan = r[2];
+                        decimal.TryParse(r[3], out var len);
+                        decimal.TryParse(r[4], out var wid);
+                        decimal.TryParse(r[5], out var hei);
+                        int.TryParse(r[6], out var wgt);
+                        int.TryParse(r[7], out var qty);
+
+                        var existing = await _context.Products.IgnoreQueryFilters().FirstOrDefaultAsync(p => p.ProductId == id)
+                                    ?? _context.Products.Local.FirstOrDefault(p => p.ProductId == id);
+                        if (existing == null)
                         {
-                            throw new Exception($"{i + 1}行目: 指定された商品コード ({id}) のレコードが存在しません。");
+                            if (!createIfNotFound)
+                            {
+                                throw new Exception($"{i + 1}行目: 指定された商品コード ({id}) のレコードが存在しません。");
+                            }
+                            var newProduct = new Product
+                            {
+                                ProductId = id,
+                                ProductName = name,
+                                JanCode = jan,
+                                Length = len,
+                                Width = wid,
+                                Height = hei,
+                                Weight = wgt,
+                                Quantity = qty
+                            };
+                            _context.Products.Add(newProduct);
                         }
-                        var newProduct = new Product
+                        else
                         {
-                            ProductId = id,
-                            ProductName = name,
-                            JanCode = jan,
-                            Length = len,
-                            Width = wid,
-                            Height = hei,
-                            Weight = wgt,
-                            Quantity = qty
-                        };
-                        _context.Products.Add(newProduct);
+                            existing.ProductName = name;
+                            existing.JanCode = jan;
+                            existing.Length = len;
+                            existing.Width = wid;
+                            existing.Height = hei;
+                            existing.Weight = wgt;
+                            existing.Quantity = qty;
+                            existing.IsDeleted = false;
+                        }
                     }
-                    else
-                    {
-                        existing.ProductName = name;
-                        existing.JanCode = jan;
-                        existing.Length = len;
-                        existing.Width = wid;
-                        existing.Height = hei;
-                        existing.Weight = wgt;
-                        existing.Quantity = qty;
-                        existing.IsDeleted = false;
-                    }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
                 TempData["SuccessMessage"] = "CSVのインポートが完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"インポートエラー: {detail}";
+                TempData["ErrorMessage"] = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}";
             }
 
             return RedirectToAction(nameof(Index));
+        }
+
+        /// <summary>
+        /// SSE ストリーミングを用いて商品マスターをリアルタイム進捗表示付きで高パフォーマンスに一括インポートします。
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task ImportCsvStream(IFormFile csvFile, bool createIfNotFound = false)
+        {
+            Response.ContentType = "text/event-stream";
+            Func<object, Task> sendProgressAsync = async (data) =>
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                await Response.WriteAsync($"data: {json}\n\n");
+                await Response.Body.FlushAsync();
+            };
+
+            if (csvFile == null || csvFile.Length == 0)
+            {
+                await sendProgressAsync(new { status = "error", message = "CSVファイルを選択してください。" });
+                return;
+            }
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                // フェーズ1: ファイル読み込み
+                await sendProgressAsync(new { status = "phase", title = "【1/4】ファイル読み込み中...", message = $"ファイル名: {csvFile.FileName} ({csvFile.Length:N0} bytes) を解析中..." });
+                var rows = await CsvService.ReadCsvAsync(csvFile);
+
+                // フェーズ2: 件数・構造検証
+                int total = rows.Count - 1;
+                await sendProgressAsync(new { status = "phase", title = "【2/4】件数チェック・構文検証中...", message = $"総データ件数: {total:N0} 件 の構文を検証中..." });
+
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
+                {
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+
+                    // フェーズ3: DB事前検証
+                    await sendProgressAsync(new { status = "phase", title = "【3/4】DBマスター事前照合中...", message = "既存の商品コード・マスター情報を一括照合キャッシュ中..." });
+                    var existingMap = await _context.Products.IgnoreQueryFilters().ToDictionaryAsync(p => p.ProductId);
+
+                    // フェーズ4: データインポート・書き込み開始
+                    await sendProgressAsync(new { status = "start", title = "【4/4】DB一括更新中...", current = 0, total = total, currentKey = "" });
+
+                    int processedCount = 0;
+                    int batchSize = 1000;
+
+                    for (int i = 1; i < rows.Count; i++)
+                    {
+                        var r = rows[i];
+                        if (r.Length < 8) continue;
+
+                        string id = (r[0] ?? "").Trim();
+                        string name = (r[1] ?? "").Trim();
+                        string jan = (r[2] ?? "").Trim();
+                        decimal.TryParse(r[3], out var len);
+                        decimal.TryParse(r[4], out var wid);
+                        decimal.TryParse(r[5], out var hei);
+                        int.TryParse(r[6], out var wgt);
+                        int.TryParse(r[7], out var qty);
+
+                        if (string.IsNullOrWhiteSpace(id)) continue;
+
+                        if (!existingMap.TryGetValue(id, out var existing))
+                        {
+                            if (!createIfNotFound)
+                            {
+                                throw new Exception($"{i + 1}行目: 指定された商品コード ({id}) のレコードが存在しません。");
+                            }
+                            var newProduct = new Product
+                            {
+                                ProductId = id,
+                                ProductName = name,
+                                JanCode = jan,
+                                Length = len,
+                                Width = wid,
+                                Height = hei,
+                                Weight = wgt,
+                                Quantity = qty
+                            };
+                            _context.Products.Add(newProduct);
+                            existingMap[id] = newProduct;
+                        }
+                        else
+                        {
+                            existing.ProductName = name;
+                            existing.JanCode = jan;
+                            existing.Length = len;
+                            existing.Width = wid;
+                            existing.Height = hei;
+                            existing.Weight = wgt;
+                            existing.Quantity = qty;
+                            existing.IsDeleted = false;
+                        }
+
+                        processedCount++;
+
+                        if (processedCount % 100 == 0 || i == rows.Count - 1)
+                        {
+                            await sendProgressAsync(new { status = "processing", current = processedCount, total = total, currentKey = $"{name} ({id})" });
+                        }
+
+                        if (processedCount % batchSize == 0)
+                        {
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    await sendProgressAsync(new { status = "completed", current = processedCount, total = total, message = $"商品マスターのインポートが完了しました。（全 {processedCount:N0} 件）" });
+                });
+            }
+            catch (Exception ex)
+            {
+                await sendProgressAsync(new { status = "error", message = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}" });
+            }
         }
     }
 }

@@ -155,30 +155,39 @@ body {
 
 /* Table Styling */
 .table-wms {
-    color: #cbd5e1;
+    color: #0f172a !important;
+    background-color: #ffffff !important;
+    --bs-table-bg: #ffffff !important;
+    --bs-table-accent-bg: #f8fafc !important;
+    --bs-table-striped-bg: #f8fafc !important;
+    --bs-table-color: #0f172a !important;
+    border-radius: 8px;
+    overflow: hidden;
     margin: 0;
 }
 
 .table-wms th {
-    background: #0f172a;
-    color: #94a3b8;
-    font-weight: 600;
+    background-color: #1e293b !important;
+    color: #f8fafc !important;
+    font-weight: 700;
     font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 2px solid #334155 !important;
     padding: 0.75rem 1rem;
 }
 
 .table-wms td {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border-bottom: 1px solid #e2e8f0 !important;
     padding: 0.85rem 1rem;
     vertical-align: middle;
     font-size: 0.9rem;
 }
 
-.table-wms tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
+.table-wms tbody tr:hover td {
+    background-color: #f1f5f9 !important;
 }
 
 /* Buttons */

@@ -5,18 +5,23 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace RouteXWms.Models
 {
     /// <summary>
-    /// 倉庫距離掛率マスター（倉庫×運賃表対応）エンティティ
-    /// 各倉庫がどの路線/距離運賃表を適用するかを紐付けます。
+    /// 案件倉庫料金表マスター（荷主＋案件＋倉庫×料金表紐づけ）エンティティ
+    /// 各荷主＋案件＋倉庫に対してどの運賃料金表を適用するかを紐付けます。
     /// </summary>
-    [Table("m_warehouse_distance_rate")]
-    public class WarehouseDistanceRate : IAuditEntity
+    [Table("t_project_warehouse_freight_table")]
+    public class ProjectWarehouseFreightTable : IAuditEntity
     {
+        /// <summary>案件ID（複合主キーの一部）</summary>
+        [Column("project_id")]
+        [Required]
+        public Guid ProjectId { get; set; }
+
         /// <summary>倉庫ID（複合主キーの一部）</summary>
         [Column("warehouse_id")]
         [Required]
         public Guid WarehouseId { get; set; }
 
-        /// <summary>運賃表ID（複合主キーの一部）</summary>
+        /// <summary>料金表ID（複合主キーの一部）</summary>
         [Column("freight_table_id")]
         [Required]
         public Guid FreightTableId { get; set; }
@@ -41,11 +46,15 @@ namespace RouteXWms.Models
         [Column("updated_at")]
         public DateTime? UpdatedAt { get; set; }
 
+        /// <summary>関連案件オブジェクト</summary>
+        [ForeignKey(nameof(ProjectId))]
+        public virtual Project? Project { get; set; }
+
         /// <summary>関連倉庫オブジェクト</summary>
         [ForeignKey(nameof(WarehouseId))]
         public virtual Warehouse? Warehouse { get; set; }
 
-        /// <summary>関連運賃表オブジェクト</summary>
+        /// <summary>関連料金表オブジェクト</summary>
         [ForeignKey(nameof(FreightTableId))]
         public virtual FreightTable? FreightTable { get; set; }
     }

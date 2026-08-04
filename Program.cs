@@ -56,6 +56,19 @@ builder.Services.AddDbContext<WmsDbContext>(options =>
     }
 });
 
+// クッキー認証（Cookie Authentication）の追加（標準Claims認証プロバイダー）
+builder.Services.AddAuthentication(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/Account/Login";
+        options.LogoutPath = "/Account/Logout";
+        options.AccessDeniedPath = "/Account/Login";
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.Name = "RouteXWms.Auth";
+    });
+
 // セッション状態の管理とメモリキャッシュの設定
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession(options =>
@@ -65,16 +78,13 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
-// MVCコントローラーおよびビューの追加（認証フィルターをグローバルに登録）
-builder.Services.AddControllersWithViews(options =>
-{
-    options.Filters.Add<AuthFilter>();
-});
+// MVCコントローラーおよびビューの追加
+builder.Services.AddControllersWithViews();
 
 // アプリケーションのビルド
 var app = builder.Build();
 
-// データベースの自動初期化および初期データ（管理者アカウント・マスターデータ）の投入
+// データベースの自動初期化および初期データ（管理者アカウント・マスターデータ・権限データ）の投入
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -94,9 +104,10 @@ app.UseStaticFiles();
 
 app.UseRouting();
 
-// セッションおよび認可ミドルウェアの有効化
-app.UseSession();
+// 認証および認可・セッションミドルウェアの有効化
+app.UseAuthentication();
 app.UseAuthorization();
+app.UseSession();
 
 // デフォルトルーティングの設定
 app.MapControllerRoute(

@@ -19,6 +19,9 @@ namespace RouteXWms.Services
         /// <summary>適用された運賃表ID</summary>
         public Guid? FreightTableId { get; set; }
 
+        /// <summary>選定された運送会社ID</summary>
+        public Guid? CarrierId { get; set; }
+
         /// <summary>運賃表種別（1: 個配, 2: 路線, 3: チャーター等）</summary>
         public int RateTableType { get; set; } = 1;
 
@@ -49,15 +52,16 @@ namespace RouteXWms.Services
         }
 
         /// <summary>
-        /// 指定された出荷条件（荷主、商品、運送会社、お届け先郵便番号、出荷ピース数）から、
+        /// 指定された出荷条件（荷主、案件、商品、運送会社、お届け先郵便番号、出荷ピース数）から、
         /// 在庫を保有し、かつ運賃が最も安くなる倉庫および運賃表を選定します。
         /// </summary>
         /// <param name="shipperId">荷主ID</param>
         /// <param name="productId">商品コード</param>
-        /// <param name="carrierId">指定運送会社ID</param>
+        /// <param name="carrierId">指定運送会社ID（Guid.Emptyの場合は案件の全運送会社を対象に最安選定）</param>
         /// <param name="zipCode">お届け先郵便番号</param>
         /// <param name="totalPieces">出荷総ピース数</param>
         /// <param name="is30KgFixed">重量30kg固定計算フラグ</param>
+        /// <param name="projectId">案件ID（任意）</param>
         /// <returns>最安倉庫選定結果オブジェクト</returns>
         public async Task<CheapestWarehouseOptionResult> FindCheapestWarehouseOptionAsync(
             Guid shipperId,
@@ -65,7 +69,8 @@ namespace RouteXWms.Services
             Guid carrierId,
             string zipCode,
             int totalPieces,
-            bool is30KgFixed)
+            bool is30KgFixed,
+            Guid? projectId = null)
         {
             var result = new CheapestWarehouseOptionResult();
 
@@ -77,13 +82,20 @@ namespace RouteXWms.Services
             int remainderPieces = totalPieces % unitQuantity;
             int totalBoxes = fullCases + (remainderPieces > 0 ? 1 : 0);
 
-            // 2. 指定運送会社の運賃表に紐づく倉庫一覧を取得
-            var rateMappings = await _context.WarehouseDistanceRates
-                .Include(w => w.FreightTable)
-                .Where(w => w.FreightTable!.CarrierId == carrierId && !w.IsDeleted)
+            // 2. 荷主＋案件に紐づく有効な案件IDリストを取得
+            var projectIds = await _context.Projects
+                .Where(p => p.ShipperId == shipperId && !p.IsDeleted)
+                .Where(p => !projectId.HasValue || p.ProjectId == projectId.Value)
+                .Select(p => p.ProjectId)
                 .ToListAsync();
 
-            var mappedWarehouseIds = rateMappings.Select(w => w.WarehouseId).Distinct().ToList();
+            // 荷主＋案件＋倉庫に定義された料金表一覧を取得（carrierIdがGuid.Emptyの場合は全運送会社を対象）
+            var pwfts = await _context.ProjectWarehouseFreightTables
+                .Include(pwf => pwf.FreightTable)
+                .Where(pwf => projectIds.Contains(pwf.ProjectId) && (carrierId == Guid.Empty || pwf.FreightTable!.CarrierId == carrierId) && !pwf.IsDeleted)
+                .ToListAsync();
+
+            var mappedWarehouseIds = pwfts.Select(w => w.WarehouseId).Distinct().ToList();
 
             // 3. 要求数量（totalPieces）以上の有効在庫を保有する候補倉庫を抽出
             var warehouseStockSums = await _context.Inventories
@@ -118,11 +130,12 @@ namespace RouteXWms.Services
             int minCost = int.MaxValue;
             Guid? cheapestWhId = null;
             Guid? cheapestFreightTableId = null;
+            Guid? cheapestCarrierId = null;
             int cheapestRateTableType = 1;
 
             foreach (var whId in candidateWhIds)
             {
-                var whMappings = rateMappings.Where(w => w.WarehouseId == whId).ToList();
+                var whMappings = pwfts.Where(w => w.WarehouseId == whId).ToList();
 
                 foreach (var mapping in whMappings)
                 {
@@ -183,6 +196,7 @@ namespace RouteXWms.Services
                                     cheapestWhId = whId;
                                     cheapestFreightTableId = ft.FreightTableId;
                                     cheapestRateTableType = ft.RateTableType;
+                                    cheapestCarrierId = ft.CarrierId;
                                 }
                             }
                         }
@@ -231,6 +245,7 @@ namespace RouteXWms.Services
                                     cheapestWhId = whId;
                                     cheapestFreightTableId = ft.FreightTableId;
                                     cheapestRateTableType = ft.RateTableType;
+                                    cheapestCarrierId = ft.CarrierId;
                                 }
                             }
                         }
@@ -243,6 +258,7 @@ namespace RouteXWms.Services
             {
                 result.WarehouseId = cheapestWhId;
                 result.FreightTableId = cheapestFreightTableId;
+                result.CarrierId = cheapestCarrierId;
                 result.RateTableType = cheapestRateTableType;
                 result.CalculatedPrice = minCost;
                 result.IsPriceFound = true;
@@ -250,6 +266,7 @@ namespace RouteXWms.Services
             else
             {
                 result.WarehouseId = null;
+                result.CarrierId = cheapestCarrierId;
                 result.IsPriceFound = false;
             }
 
@@ -265,9 +282,10 @@ namespace RouteXWms.Services
             Guid carrierId,
             string zipCode,
             int totalPieces,
-            bool is30KgFixed)
+            bool is30KgFixed,
+            Guid? projectId = null)
         {
-            var res = await FindCheapestWarehouseOptionAsync(shipperId, productId, carrierId, zipCode, totalPieces, is30KgFixed);
+            var res = await FindCheapestWarehouseOptionAsync(shipperId, productId, carrierId, zipCode, totalPieces, is30KgFixed, projectId);
             return res.WarehouseId;
         }
 

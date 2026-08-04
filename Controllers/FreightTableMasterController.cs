@@ -203,86 +203,289 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                for (int i = 1; i < rows.Count; i++)
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 4) continue;
-
-                    string idStr = r[0];
-                    string name = r[1];
-                    string typeStr = r[2];
-                    string carrierIdStr = r[3];
-
-                    if (!int.TryParse(typeStr, out var rateTableType))
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        rateTableType = 1;
-                    }
-                    if (!Guid.TryParse(carrierIdStr, out var carrierId))
-                    {
-                        throw new Exception($"{i + 1}行目: 運送会社IDのフォーマットが不正です。");
-                    }
+                        var r = rows[i];
+                        if (r.Length < 4) continue;
 
-                    if (string.IsNullOrWhiteSpace(idStr))
-                    {
-                        var newEntity = new FreightTable
+                        string idStr = r[0];
+                        string name = r[1];
+                        string typeStr = r[2];
+                        string carrierIdStr = r[3];
+
+                        if (!int.TryParse(typeStr, out var rateTableType))
                         {
-                            FreightTableId = Guid.NewGuid(),
-                            RateName = name,
-                            RateTableType = rateTableType,
-                            CarrierId = carrierId
-                        };
-                        _context.FreightTables.Add(newEntity);
-                    }
-                    else
-                    {
-                        if (!Guid.TryParse(idStr, out var id))
-                        {
-                            throw new Exception($"{i + 1}行目: 運賃表IDのフォーマットが不正です。");
+                            rateTableType = 1;
                         }
-                        var existing = await _context.FreightTables.IgnoreQueryFilters().FirstOrDefaultAsync(f => f.FreightTableId == id)
-                                    ?? _context.FreightTables.Local.FirstOrDefault(f => f.FreightTableId == id);
-
-                        if (existing == null)
+                        if (!Guid.TryParse(carrierIdStr, out var carrierId))
                         {
-                            if (!createIfNotFound)
+                            throw new Exception($"{i + 1}行目: 運送会社IDのフォーマットが不正です。({carrierIdStr})");
+                        }
+
+                        if (string.IsNullOrWhiteSpace(idStr))
+                        {
+                            var newEntity = new FreightTable
                             {
-                                throw new Exception($"{i + 1}行目: 指定された運賃表ID ({idStr}) のレコードが存在しません。");
-                            }
-                            existing = new FreightTable
-                            {
-                                FreightTableId = id,
+                                FreightTableId = Guid.NewGuid(),
                                 RateName = name,
                                 RateTableType = rateTableType,
                                 CarrierId = carrierId
                             };
-                            _context.FreightTables.Add(existing);
+                            _context.FreightTables.Add(newEntity);
                         }
                         else
                         {
-                            existing.RateName = name;
-                            existing.RateTableType = rateTableType;
-                            existing.CarrierId = carrierId;
-                            existing.IsDeleted = false;
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 運賃表IDのフォーマットが不正です。({idStr})");
+                            }
+                            var existing = await _context.FreightTables.IgnoreQueryFilters().FirstOrDefaultAsync(f => f.FreightTableId == id)
+                                        ?? _context.FreightTables.Local.FirstOrDefault(f => f.FreightTableId == id);
+
+                            if (existing == null)
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された運賃表ID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new FreightTable
+                                {
+                                    FreightTableId = id,
+                                    RateName = name,
+                                    RateTableType = rateTableType,
+                                    CarrierId = carrierId
+                                };
+                                _context.FreightTables.Add(existing);
+                            }
+                            else
+                            {
+                                existing.RateName = name;
+                                existing.RateTableType = rateTableType;
+                                existing.CarrierId = carrierId;
+                                existing.IsDeleted = false;
+                            }
                         }
                     }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
                 TempData["SuccessMessage"] = "CSVのインポートが完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"インポートエラー: {detail}";
+                TempData["ErrorMessage"] = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}";
             }
 
             return RedirectToAction(nameof(Index));
+        }
+
+        /// <summary>
+        /// SSE ストリーミングを用いて運賃表マスターをリアルタイム進捗表示付きで高パフォーマンスに一括インポートします。
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task ImportCsvStream(IFormFile csvFile, bool createIfNotFound = false, Guid? defaultCarrierId = null)
+        {
+            Response.ContentType = "text/event-stream";
+            Func<object, Task> sendProgressAsync = async (data) =>
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                await Response.WriteAsync($"data: {json}\n\n");
+                await Response.Body.FlushAsync();
+            };
+
+            if (csvFile == null || csvFile.Length == 0)
+            {
+                await sendProgressAsync(new { status = "error", message = "CSVファイルを選択してください。" });
+                return;
+            }
+
+            try
+            {
+                var rows = await CsvService.ReadCsvAsync(csvFile);
+
+                // 事前検証（DBトランザクション開始前）
+                if (defaultCarrierId.HasValue && defaultCarrierId.Value != Guid.Empty)
+                {
+                    bool carrierExists = await _context.Carriers.AnyAsync(c => c.CarrierId == defaultCarrierId.Value && !c.IsDeleted);
+                    if (!carrierExists)
+                    {
+                        await sendProgressAsync(new { status = "error", message = "指定されたデフォルト運送会社がマスターに存在しません。" });
+                        return;
+                    }
+                }
+                else
+                {
+                    bool hasEmptyCarrierKey = false;
+                    for (int i = 1; i < rows.Count; i++)
+                    {
+                        var r = rows[i];
+                        if (r.Length < 2) continue;
+                        string carrierIdStr = r.Length > 3 ? (r[3] ?? "").Trim() : "";
+                        if (string.IsNullOrWhiteSpace(carrierIdStr))
+                        {
+                            hasEmptyCarrierKey = true;
+                            break;
+                        }
+                    }
+
+                    if (hasEmptyCarrierKey)
+                    {
+                        await sendProgressAsync(new { status = "need_selection", missing = new[] { "carrier" }, message = "運送会社IDが未指定のデータが検出されました。適用する運送会社を選択してください。" });
+                        return;
+                    }
+                }
+
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
+                {
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    var existingMap = await _context.FreightTables.IgnoreQueryFilters().ToDictionaryAsync(ft => ft.FreightTableId);
+                    var validCarriers = new HashSet<Guid>(await _context.Carriers.Select(c => c.CarrierId).ToListAsync());
+
+                    int total = rows.Count - 1;
+                    await sendProgressAsync(new { status = "start", current = 0, total = total, currentKey = "" });
+
+                    int processedCount = 0;
+                    int batchSize = 1000;
+
+                    for (int i = 1; i < rows.Count; i++)
+                    {
+                        var r = rows[i];
+                        if (r.Length < 2) continue;
+
+                        string idStr, name, typeStr, carrierIdStr;
+
+                        // 4列形式（運賃表ID, 料金表名, 料金表種別, 運送会社ID）と 3列/2列形式の自動判定
+                        if (r.Length >= 4 && Guid.TryParse((r[0] ?? "").Trim(), out _))
+                        {
+                            idStr = (r[0] ?? "").Trim();
+                            name = (r[1] ?? "").Trim();
+                            typeStr = (r[2] ?? "").Trim();
+                            carrierIdStr = (r[3] ?? "").Trim();
+                        }
+                        else if (r.Length >= 3)
+                        {
+                            idStr = (r[0] ?? "").Trim();
+                            name = (r[1] ?? "").Trim();
+                            typeStr = (r[2] ?? "").Trim();
+                            carrierIdStr = r.Length > 3 ? (r[3] ?? "").Trim() : "";
+                        }
+                        else
+                        {
+                            idStr = "";
+                            name = (r[0] ?? "").Trim();
+                            typeStr = (r[1] ?? "").Trim();
+                            carrierIdStr = "";
+                        }
+
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+
+                        if (string.IsNullOrWhiteSpace(carrierIdStr) && defaultCarrierId.HasValue && defaultCarrierId.Value != Guid.Empty)
+                        {
+                            carrierIdStr = defaultCarrierId.Value.ToString();
+                        }
+
+                        if (!int.TryParse(typeStr, out var rateType))
+                        {
+                            throw new Exception($"{i + 1}行目: 運賃表種別は数値(1:個配, 2:路線, 3:チャーター)を指定してください。");
+                        }
+
+                        Guid carrierId = Guid.Empty;
+                        if (!string.IsNullOrWhiteSpace(carrierIdStr) && Guid.TryParse(carrierIdStr, out var cId))
+                        {
+                            if (!validCarriers.Contains(cId))
+                            {
+                                throw new Exception($"{i + 1}行目: 指定された運送会社ID ({carrierIdStr}) が存在しません。");
+                            }
+                            carrierId = cId;
+                        }
+                        else if (defaultCarrierId.HasValue && defaultCarrierId.Value != Guid.Empty)
+                        {
+                            carrierId = defaultCarrierId.Value;
+                        }
+                        else
+                        {
+                            throw new Exception($"{i + 1}行目: 運送会社を選択するか、CSV内に運送会社IDを指定してください。");
+                        }
+
+                        if (string.IsNullOrWhiteSpace(idStr))
+                        {
+                            var newFt = new FreightTable
+                            {
+                                FreightTableId = Guid.NewGuid(),
+                                RateName = name,
+                                RateTableType = rateType,
+                                CarrierId = carrierId
+                            };
+                            _context.FreightTables.Add(newFt);
+                        }
+                        else
+                        {
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 運賃表IDのフォーマットが不正です。({idStr})");
+                            }
+
+                            if (!existingMap.TryGetValue(id, out var existing))
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された運賃表ID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new FreightTable
+                                {
+                                    FreightTableId = id,
+                                    RateName = name,
+                                    RateTableType = rateType,
+                                    CarrierId = carrierId
+                                };
+                                _context.FreightTables.Add(existing);
+                                existingMap[id] = existing;
+                            }
+                            else
+                            {
+                                existing.RateName = name;
+                                existing.RateTableType = rateType;
+                                if (carrierId != Guid.Empty) existing.CarrierId = carrierId;
+                                existing.IsDeleted = false;
+                            }
+                        }
+
+                        processedCount++;
+
+                        if (processedCount % 100 == 0 || i == rows.Count - 1)
+                        {
+                            await sendProgressAsync(new { status = "processing", current = processedCount, total = total, currentKey = name });
+                        }
+
+                        if (processedCount % batchSize == 0)
+                        {
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    await sendProgressAsync(new { status = "completed", current = processedCount, total = total, message = $"運賃表マスターのインポートが完了しました。（全 {processedCount:N0} 件）" });
+                });
+            }
+            catch (Exception ex)
+            {
+                await sendProgressAsync(new { status = "error", message = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}" });
+            }
         }
     }
 }

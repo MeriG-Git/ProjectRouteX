@@ -223,62 +223,36 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                for (int i = 1; i < rows.Count; i++)
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 11) continue;
-
-                    string idStr = r[0];
-                    if (!Guid.TryParse(r[1], out var shipperId)) continue;
-                    if (!Guid.TryParse(r[2], out var shippingClassId)) continue;
-                    if (!Guid.TryParse(r[3], out var warehouseId)) continue;
-                    string areaName = r[4];
-                    int.TryParse(r[5], out var invType);
-                    string yShop = r[6];
-                    string yCust = r[7];
-                    string ySub = r[8];
-                    int.TryParse(r[9], out var yFreight);
-                    string senderCode = r[10];
-
-                    if (string.IsNullOrWhiteSpace(idStr))
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        var newArea = new CollectionArea
+                        var r = rows[i];
+                        if (r.Length < 11) continue;
+
+                        string idStr = r[0];
+                        if (!Guid.TryParse(r[1], out var shipperId)) continue;
+                        if (!Guid.TryParse(r[2], out var shippingClassId)) continue;
+                        if (!Guid.TryParse(r[3], out var warehouseId)) continue;
+                        string areaName = r[4];
+                        int.TryParse(r[5], out var invType);
+                        string yShop = r[6];
+                        string yCust = r[7];
+                        string ySub = r[8];
+                        int.TryParse(r[9], out var yFreight);
+                        string senderCode = r[10];
+
+                        if (string.IsNullOrWhiteSpace(idStr))
                         {
-                            AreaId = Guid.NewGuid(),
-                            ShipperId = shipperId,
-                            ShippingClassId = shippingClassId,
-                            WarehouseId = warehouseId,
-                            AreaName = areaName,
-                            InvoiceType = invType,
-                            YamatoShopCode = yShop,
-                            YamatoCustomerCode = yCust,
-                            YamatoSubCode = ySub,
-                            YamatoFreightMgmt = yFreight,
-                            SenderCode = senderCode
-                        };
-                        _context.CollectionAreas.Add(newArea);
-                    }
-                    else
-                    {
-                        if (!Guid.TryParse(idStr, out var id))
-                        {
-                            throw new Exception($"{i + 1}行目: 集荷エリアIDのフォーマットが不正です。");
-                        }
-                        var existing = await _context.CollectionAreas.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.AreaId == id)
-                                    ?? _context.CollectionAreas.Local.FirstOrDefault(c => c.AreaId == id);
-                        if (existing == null)
-                        {
-                            if (!createIfNotFound)
+                            var newArea = new CollectionArea
                             {
-                                throw new Exception($"{i + 1}行目: 指定された集荷エリアID ({idStr}) のレコードが存在しません。");
-                            }
-                            existing = new CollectionArea
-                            {
-                                AreaId = id,
+                                AreaId = Guid.NewGuid(),
                                 ShipperId = shipperId,
                                 ShippingClassId = shippingClassId,
                                 WarehouseId = warehouseId,
@@ -290,37 +264,253 @@ namespace RouteXWms.Controllers
                                 YamatoFreightMgmt = yFreight,
                                 SenderCode = senderCode
                             };
-                            _context.CollectionAreas.Add(existing);
+                            _context.CollectionAreas.Add(newArea);
                         }
                         else
                         {
-                            existing.ShipperId = shipperId;
-                            existing.ShippingClassId = shippingClassId;
-                            existing.WarehouseId = warehouseId;
-                            existing.AreaName = areaName;
-                            existing.InvoiceType = invType;
-                            existing.YamatoShopCode = yShop;
-                            existing.YamatoCustomerCode = yCust;
-                            existing.YamatoSubCode = ySub;
-                            existing.YamatoFreightMgmt = yFreight;
-                            existing.SenderCode = senderCode;
-                            existing.IsDeleted = false;
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 集荷エリアIDのフォーマットが不正です。({idStr})");
+                            }
+                            var existing = await _context.CollectionAreas.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.AreaId == id)
+                                        ?? _context.CollectionAreas.Local.FirstOrDefault(c => c.AreaId == id);
+                            if (existing == null)
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された集荷エリアID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new CollectionArea
+                                {
+                                    AreaId = id,
+                                    ShipperId = shipperId,
+                                    ShippingClassId = shippingClassId,
+                                    WarehouseId = warehouseId,
+                                    AreaName = areaName,
+                                    InvoiceType = invType,
+                                    YamatoShopCode = yShop,
+                                    YamatoCustomerCode = yCust,
+                                    YamatoSubCode = ySub,
+                                    YamatoFreightMgmt = yFreight,
+                                    SenderCode = senderCode
+                                };
+                                _context.CollectionAreas.Add(existing);
+                            }
+                            else
+                            {
+                                existing.ShipperId = shipperId;
+                                existing.ShippingClassId = shippingClassId;
+                                existing.WarehouseId = warehouseId;
+                                existing.AreaName = areaName;
+                                existing.InvoiceType = invType;
+                                existing.YamatoShopCode = yShop;
+                                existing.YamatoCustomerCode = yCust;
+                                existing.YamatoSubCode = ySub;
+                                existing.YamatoFreightMgmt = yFreight;
+                                existing.SenderCode = senderCode;
+                                existing.IsDeleted = false;
+                            }
                         }
                     }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
                 TempData["SuccessMessage"] = "CSVのインポートが完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"インポートエラー: {detail}";
+                TempData["ErrorMessage"] = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}";
             }
 
             return RedirectToAction(nameof(Index));
+        }
+
+        /// <summary>
+        /// SSE ストリーミングを用いて集荷エリアマスターをリアルタイム進捗表示付きで高パフォーマンスに一括インポートします。
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task ImportCsvStream(
+            IFormFile csvFile, 
+            bool createIfNotFound = false, 
+            Guid? defaultShipperId = null, 
+            Guid? defaultShippingClassId = null, 
+            Guid? defaultWarehouseId = null)
+        {
+            Response.ContentType = "text/event-stream";
+            Func<object, Task> sendProgressAsync = async (data) =>
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                await Response.WriteAsync($"data: {json}\n\n");
+                await Response.Body.FlushAsync();
+            };
+
+            if (csvFile == null || csvFile.Length == 0)
+            {
+                await sendProgressAsync(new { status = "error", message = "CSVファイルを選択してください。" });
+                return;
+            }
+
+            try
+            {
+                var rows = await CsvService.ReadCsvAsync(csvFile);
+
+                // 事前検証（DBトランザクション開始前）
+                List<string> missingKeys = new List<string>();
+
+                bool checkShipper = !defaultShipperId.HasValue || defaultShipperId.Value == Guid.Empty;
+                bool checkShippingClass = !defaultShippingClassId.HasValue || defaultShippingClassId.Value == Guid.Empty;
+                bool checkWarehouse = !defaultWarehouseId.HasValue || defaultWarehouseId.Value == Guid.Empty;
+
+                bool needShipper = false, needShippingClass = false, needWarehouse = false;
+
+                for (int i = 1; i < rows.Count; i++)
+                {
+                    var r = rows[i];
+                    if (r.Length < 1) continue;
+
+                    string shipperIdStr = r.Length > 1 ? (r[1] ?? "").Trim() : "";
+                    string classIdStr = r.Length > 2 ? (r[2] ?? "").Trim() : "";
+                    string whIdStr = r.Length > 3 ? (r[3] ?? "").Trim() : "";
+
+                    if (checkShipper && !Guid.TryParse(shipperIdStr, out _)) needShipper = true;
+                    if (checkShippingClass && !Guid.TryParse(classIdStr, out _)) needShippingClass = true;
+                    if (checkWarehouse && !Guid.TryParse(whIdStr, out _)) needWarehouse = true;
+                }
+
+                if (needShipper) missingKeys.Add("shipper");
+                if (needShippingClass) missingKeys.Add("shippingClass");
+                if (needWarehouse) missingKeys.Add("warehouse");
+
+                if (missingKeys.Count > 0)
+                {
+                    await sendProgressAsync(new { status = "need_selection", missing = missingKeys, message = "未指定の参照マスターが検出されました。適用するマスターを選択してください。" });
+                    return;
+                }
+
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
+                {
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    var existingMap = await _context.CollectionAreas.IgnoreQueryFilters().ToDictionaryAsync(ca => ca.AreaId);
+
+                    int total = rows.Count - 1;
+                    await sendProgressAsync(new { status = "start", current = 0, total = total, currentKey = "" });
+
+                    int processedCount = 0;
+                    int batchSize = 1000;
+
+                    for (int i = 1; i < rows.Count; i++)
+                    {
+                        var r = rows[i];
+                        if (r.Length < 1) continue;
+
+                        string idStr = (r[0] ?? "").Trim();
+                        string shipperIdStr = r.Length > 1 ? (r[1] ?? "").Trim() : "";
+                        string classIdStr = r.Length > 2 ? (r[2] ?? "").Trim() : "";
+                        string whIdStr = r.Length > 3 ? (r[3] ?? "").Trim() : "";
+                        string name = r.Length > 4 ? (r[4] ?? "").Trim() : (r.Length > 1 && !Guid.TryParse(r[1], out _) ? (r[1] ?? "").Trim() : "");
+
+                        if (string.IsNullOrWhiteSpace(name))
+                        {
+                            name = $"集荷エリア_{i}";
+                        }
+
+                        // デフォルトフォールバック適用
+                        if (string.IsNullOrWhiteSpace(shipperIdStr) && defaultShipperId.HasValue && defaultShipperId.Value != Guid.Empty)
+                        {
+                            shipperIdStr = defaultShipperId.Value.ToString();
+                        }
+                        if (string.IsNullOrWhiteSpace(classIdStr) && defaultShippingClassId.HasValue && defaultShippingClassId.Value != Guid.Empty)
+                        {
+                            classIdStr = defaultShippingClassId.Value.ToString();
+                        }
+                        if (string.IsNullOrWhiteSpace(whIdStr) && defaultWarehouseId.HasValue && defaultWarehouseId.Value != Guid.Empty)
+                        {
+                            whIdStr = defaultWarehouseId.Value.ToString();
+                        }
+
+                        if (!Guid.TryParse(shipperIdStr, out var shipperId))
+                        {
+                            throw new Exception($"{i + 1}行目: 荷主を選択するか、CSV内に有効な荷主IDを指定してください。");
+                        }
+                        if (!Guid.TryParse(classIdStr, out var shippingClassId))
+                        {
+                            throw new Exception($"{i + 1}行目: 出荷区分を選択するか、CSV内に有効な出荷区分IDを指定してください。");
+                        }
+                        if (!Guid.TryParse(whIdStr, out var warehouseId))
+                        {
+                            throw new Exception($"{i + 1}行目: 倉庫を選択するか、CSV内に有効な倉庫IDを指定してください。");
+                        }
+
+                        if (string.IsNullOrWhiteSpace(idStr) || !Guid.TryParse(idStr, out var id))
+                        {
+                            id = Guid.NewGuid();
+                            var newCa = new CollectionArea
+                            {
+                                AreaId = id,
+                                ShipperId = shipperId,
+                                ShippingClassId = shippingClassId,
+                                WarehouseId = warehouseId,
+                                AreaName = name
+                            };
+                            _context.CollectionAreas.Add(newCa);
+                        }
+                        else
+                        {
+                            if (!existingMap.TryGetValue(id, out var existing))
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された集荷エリアID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new CollectionArea
+                                {
+                                    AreaId = id,
+                                    ShipperId = shipperId,
+                                    ShippingClassId = shippingClassId,
+                                    WarehouseId = warehouseId,
+                                    AreaName = name
+                                };
+                                _context.CollectionAreas.Add(existing);
+                                existingMap[id] = existing;
+                            }
+                            else
+                            {
+                                existing.ShipperId = shipperId;
+                                existing.ShippingClassId = shippingClassId;
+                                existing.WarehouseId = warehouseId;
+                                existing.AreaName = name;
+                                existing.IsDeleted = false;
+                            }
+                        }
+
+                        processedCount++;
+
+                        if (processedCount % 100 == 0 || i == rows.Count - 1)
+                        {
+                            await sendProgressAsync(new { status = "processing", current = processedCount, total = total, currentKey = name });
+                        }
+
+                        if (processedCount % batchSize == 0)
+                        {
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    await sendProgressAsync(new { status = "completed", current = processedCount, total = total, message = $"集荷エリアマスターのインポートが完了しました。（全 {processedCount:N0} 件）" });
+                });
+            }
+            catch (Exception ex)
+            {
+                await sendProgressAsync(new { status = "error", message = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}" });
+            }
         }
     }
 }

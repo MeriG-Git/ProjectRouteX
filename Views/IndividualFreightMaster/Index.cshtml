@@ -226,28 +226,53 @@
 </div>
 
 <!-- Import Modal -->
-<div class="modal fade" id="importModal" tabindex="-1">
+<div class="modal fade" id="importModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog">
         <div class="modal-content bg-dark text-white border-secondary">
-            <form method="post" asp-action="ImportCsv" enctype="multipart/form-data">
+            <form id="importForm" onsubmit="submitImportStream(event, '@Url.Action("ImportCsvStream")')">
                 @Html.AntiForgeryToken()
                 <div class="modal-header border-secondary">
-                    <h5 class="modal-title">個配運賃マスター CSVインポート</h5>
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-spreadsheet me-2"></i>個配運賃マスター CSVインポート</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small text-secondary">CSVフォーマット: 個配運賃ID, 運賃表ID, 県コード, 都道府県名, 大きさ, 重量, 原価, 売価</p>
-                    <div class="mb-3">
-                        <input type="file" name="csvFile" accept=".csv" class="form-control bg-secondary text-white border-0" required />
+                    <div id="importFormArea">
+                        <div class="mb-3">
+                            <label class="form-label text-light fw-semibold">CSVファイルを選択</label>
+                            <input type="file" name="csvFile" accept=".csv" class="form-control bg-secondary text-white border-0" required />
+                            <p class="small text-secondary mt-1 mb-0">※ CSV内に親キー（運賃表ID等）が含まれていない場合、自動検出して適用する料金表の選択画面が表示されます。</p>
+                        </div>
+                        <div class="mb-3 form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="createIfNotFound" value="true" id="createIfNotFound_ind" checked />
+                            <label class="form-check-label text-white" for="createIfNotFound_ind">未存在IDのレコードを新規作成する（OFF時はエラー）</label>
+                        </div>
                     </div>
-                    <div class="mb-3 form-check form-switch">
-                        <input class="form-check-input" type="checkbox" name="createIfNotFound" value="true" id="createIfNotFound_ind" checked />
-                        <label class="form-check-label text-white" for="createIfNotFound_ind">未存在IDのレコードを新規作成する（OFF時はエラー）</label>
+
+                    <!-- 動的マスター補完選択エリア (CSV内に空キーが検出された場合のみ表示) -->
+                    <div id="importSelectionArea" class="d-none border border-warning rounded p-3 mb-3 bg-dark">
+                        <div class="text-warning fw-bold mb-2"><i class="bi bi-exclamation-triangle-fill me-2"></i>適用マスターの選択が必要です</div>
+                        <p class="small text-light mb-3">取り込まれたCSV内に未指定（空）のキーが検出されました。適用するマスターを選択してください。</p>
+                        <div id="selectionFields"></div>
+                        <button type="submit" class="btn btn-warning w-100 fw-bold mt-2"><i class="bi bi-play-fill me-1"></i>選択したマスターで処理を続行</button>
+                    </div>
+
+                    <!-- Realtime Progress Bar Area -->
+                    <div id="importProgressArea" class="d-none text-center py-2">
+                        <div class="mb-2 fw-semibold text-info" id="importStatusTitle">個配運賃データ処理中...</div>
+                        <div class="progress mb-3 bg-secondary" style="height: 22px;">
+                            <div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;"></div>
+                        </div>
+                        <div id="importCountText" class="fw-bold fs-5 text-white mb-1">0 / 0 件 (0%)</div>
+                        <div id="importCurrentKeyText" class="badge bg-dark border border-secondary text-light px-3 py-2 fs-6">処理中の対象データ: -</div>
+                        <div id="importAlert" class="alert d-none mt-3 mb-0" role="alert"></div>
                     </div>
                 </div>
-                <div class="modal-footer border-secondary">
+                <div id="importFooter" class="modal-footer border-secondary">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
                     <button type="submit" class="btn btn-wms-primary">インポート実行</button>
+                </div>
+                <div id="importCloseBtn" class="modal-footer border-secondary d-none">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="location.reload()">閉じる</button>
                 </div>
             </form>
         </div>
@@ -317,10 +342,11 @@
             document.getElementById('btnBatchDelete').disabled = (selected === 0);
         }
 
-        function submitBatchDelete() {
-            if (confirm('選択した項目をまとめて削除しますか？')) {
-                document.getElementById('batchDeleteForm').submit();
-            }
-        }
+        window.masterOptions = {
+            freightTables: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+                ((IEnumerable<RouteXWms.Models.FreightTable>)ViewBag.FreightTables ?? Enumerable.Empty<RouteXWms.Models.FreightTable>())
+                .Select(ft => new { id = ft.FreightTableId, name = ft.RateName })
+            ))
+        };
     </script>
 }

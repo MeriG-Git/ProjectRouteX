@@ -123,12 +123,6 @@ namespace RouteXWms.Controllers
                 ModelState.AddModelError("PalletCount", "パレット数は0以上を入力してください。");
             }
 
-            var product = await _context.Products.FirstOrDefaultAsync(p => p.ProductId == inbound.ProductId);
-            if (product == null)
-            {
-                ModelState.AddModelError("ProductId", "指定された商品IDは存在しません。");
-            }
-
             if (!ModelState.IsValid)
             {
                 ViewBag.Shippers = await _context.Shippers.OrderBy(s => s.ShipperName).ToListAsync();
@@ -136,82 +130,97 @@ namespace RouteXWms.Controllers
                 return View(inbound);
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
             try
             {
-                bool isNew = inbound.InboundId == Guid.Empty || !await _context.Inbounds.AnyAsync(i => i.InboundId == inbound.InboundId);
-                Inbound? dbInbound;
-
-                if (isNew)
+                bool isNotFound = false;
+                await strategy.ExecuteAsync(async () =>
                 {
-                    if (inbound.InboundId == Guid.Empty)
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    bool isNew = inbound.InboundId == Guid.Empty || !await _context.Inbounds.AnyAsync(i => i.InboundId == inbound.InboundId);
+                    Inbound? dbInbound;
+
+                    if (isNew)
                     {
-                        inbound.InboundId = Guid.NewGuid();
-                    }
-                    dbInbound = inbound;
-                    _context.Inbounds.Add(dbInbound);
-                }
-                else
-                {
-                    dbInbound = await _context.Inbounds.FirstOrDefaultAsync(i => i.InboundId == inbound.InboundId);
-                    if (dbInbound == null)
-                    {
-                        return NotFound();
-                    }
-
-                    dbInbound.ShipperId = inbound.ShipperId;
-                    dbInbound.WarehouseId = inbound.WarehouseId;
-                    dbInbound.ProductId = inbound.ProductId;
-                    dbInbound.ScheduledDate = inbound.ScheduledDate;
-                    dbInbound.ActualDate = inbound.ActualDate;
-                    dbInbound.ConfirmedDate = inbound.ConfirmedDate;
-                    dbInbound.InboundType = inbound.InboundType;
-                    dbInbound.PalletCount = inbound.PalletCount;
-                    dbInbound.CaseCount = inbound.CaseCount;
-                    dbInbound.Remarks = inbound.Remarks;
-                    dbInbound.Status = inbound.Status;
-                    _context.Inbounds.Update(dbInbound);
-                }
-
-                await _context.SaveChangesAsync();
-
-                // ステータスが確認済（11）の場合、ケース数分だけ在庫（t_inventory）レコードを生成
-                if (dbInbound.Status == 11)
-                {
-                    int existingInvCount = await _context.Inventories.CountAsync(inv => inv.InboundId == dbInbound.InboundId);
-                    int neededNewRows = dbInbound.CaseCount - existingInvCount;
-
-                    if (neededNewRows > 0)
-                    {
-                        for (int i = 0; i < neededNewRows; i++)
+                        if (inbound.InboundId == Guid.Empty)
                         {
-                            var inv = new Inventory
-                            {
-                                InventoryId = Guid.NewGuid(),
-                                InboundId = dbInbound.InboundId,
-                                ShipperId = dbInbound.ShipperId,
-                                WarehouseId = dbInbound.WarehouseId,
-                                ProductId = dbInbound.ProductId,
-                                ActualInboundDate = dbInbound.ActualDate ?? DateTime.Now,
-                                ScheduledOutboundDate = null,
-                                ActualOutboundDate = null,
-                                CurrentQuantity = product.Quantity,
-                                IsLoose = false,
-                                Status = 1 // 1: 在庫あり
-                            };
-                            _context.Inventories.Add(inv);
+                            inbound.InboundId = Guid.NewGuid();
                         }
-                        await _context.SaveChangesAsync();
+                        dbInbound = inbound;
+                        _context.Inbounds.Add(dbInbound);
                     }
+                    else
+                    {
+                        dbInbound = await _context.Inbounds.FirstOrDefaultAsync(i => i.InboundId == inbound.InboundId);
+                        if (dbInbound == null)
+                        {
+                            isNotFound = true;
+                            return;
+                        }
+
+                        dbInbound.ShipperId = inbound.ShipperId;
+                        dbInbound.WarehouseId = inbound.WarehouseId;
+                        dbInbound.ProductId = inbound.ProductId;
+                        dbInbound.ScheduledDate = inbound.ScheduledDate;
+                        dbInbound.ActualDate = inbound.ActualDate;
+                        dbInbound.ConfirmedDate = inbound.ConfirmedDate;
+                        dbInbound.InboundType = inbound.InboundType;
+                        dbInbound.PalletCount = inbound.PalletCount;
+                        dbInbound.CaseCount = inbound.CaseCount;
+                        dbInbound.Remarks = inbound.Remarks;
+                        dbInbound.Status = inbound.Status;
+                        _context.Inbounds.Update(dbInbound);
+                    }
+
+                    await _context.SaveChangesAsync();
+
+                    // ステータスが確認済（11）の場合、ケース数分だけ在庫（t_inventory）レコードを生成
+                    if (dbInbound.Status == 11)
+                    {
+                        int existingInvCount = await _context.Inventories.CountAsync(inv => inv.InboundId == dbInbound.InboundId);
+                        int neededNewRows = dbInbound.CaseCount - existingInvCount;
+
+                        if (neededNewRows > 0)
+                        {
+                            var product = await _context.Products.FirstOrDefaultAsync(p => p.ProductId == dbInbound.ProductId);
+                            if (product != null)
+                            {
+                                for (int i = 0; i < neededNewRows; i++)
+                                {
+                                    var inv = new Inventory
+                                    {
+                                        InventoryId = Guid.NewGuid(),
+                                        InboundId = dbInbound.InboundId,
+                                        ShipperId = dbInbound.ShipperId,
+                                        WarehouseId = dbInbound.WarehouseId,
+                                        ProductId = dbInbound.ProductId,
+                                        ActualInboundDate = dbInbound.ActualDate ?? DateTime.Now,
+                                        ScheduledOutboundDate = null,
+                                        ActualOutboundDate = null,
+                                        CurrentQuantity = product.Quantity,
+                                        IsLoose = false,
+                                        Status = 1 // 1: 在庫あり
+                                    };
+                                    _context.Inventories.Add(inv);
+                                }
+                                await _context.SaveChangesAsync();
+                            }
+                        }
+                    }
+
+                    await transaction.CommitAsync();
+                });
+
+                if (isNotFound)
+                {
+                    return NotFound();
                 }
 
-                await transaction.CommitAsync();
                 TempData["SuccessMessage"] = "入庫データを保存しました。";
                 return RedirectToAction(nameof(List));
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
                 ModelState.AddModelError("", $"エラーが発生しました: {ex.Message}");
                 ViewBag.Shippers = await _context.Shippers.OrderBy(s => s.ShipperName).ToListAsync();
                 ViewBag.Warehouses = await _context.Warehouses.OrderBy(w => w.WarehouseName).ToListAsync();
@@ -228,7 +237,7 @@ namespace RouteXWms.Controllers
         /// <returns>一覧画面へのリダイレクト</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ImportReportCsv(Guid shipperId, Guid warehouseId, IFormFile csvFile)
+        public async Task<IActionResult> ImportCsv(Guid shipperId, Guid warehouseId, IFormFile csvFile)
         {
             if (shipperId == Guid.Empty)
             {
@@ -246,7 +255,6 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(List));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var rows = await CsvService.ReadCsvAsync(csvFile);
@@ -255,101 +263,106 @@ namespace RouteXWms.Controllers
                     throw new Exception("取り込むデータが存在しません。");
                 }
 
-                var productsDict = await _context.Products.ToDictionaryAsync(p => p.ProductId, p => p);
-                var productIds = productsDict.Keys.ToList();
+                var strategy = _context.Database.CreateExecutionStrategy();
 
-                for (int i = 1; i < rows.Count; i++)
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 6) continue;
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    var productsDict = await _context.Products.ToDictionaryAsync(p => p.ProductId, p => p);
+                    var productIds = productsDict.Keys.ToList();
 
-                    string productId = (r[0] ?? "").Trim();
-                    string actualDateStr = (r[1] ?? "").Trim();
-                    string confirmedDateStr = (r[2] ?? "").Trim();
-                    string typeStr = (r[3] ?? "").Trim();
-                    string palletStr = (r[4] ?? "").Trim();
-                    string caseStr = (r[5] ?? "").Trim();
-                    string remarks = r.Length >= 7 ? r[6] : null;
-
-                    if (string.IsNullOrWhiteSpace(productId))
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        throw new Exception($"{i + 1}行目: 商品IDが空です。");
-                    }
-                    if (!productIds.Contains(productId))
-                    {
-                        throw new Exception($"{i + 1}行目: 商品ID '{productId}' は商品マスタに存在しません。");
-                    }
+                        var r = rows[i];
+                        if (r.Length < 6) continue;
 
-                    var currentProduct = productsDict[productId];
+                        string productId = (r[0] ?? "").Trim();
+                        string actualDateStr = (r[1] ?? "").Trim();
+                        string confirmedDateStr = (r[2] ?? "").Trim();
+                        string typeStr = (r[3] ?? "").Trim();
+                        string palletStr = (r[4] ?? "").Trim();
+                        string caseStr = (r[5] ?? "").Trim();
+                        string remarks = r.Length >= 7 ? r[6] : null;
 
-                    // 日付パース (yyyyMMdd)
-                    if (!DateTime.TryParseExact(actualDateStr, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var actualDate))
-                    {
-                        throw new Exception($"{i + 1}行目: 入庫実績日のフォーマットが不正です。");
-                    }
-
-                    if (!DateTime.TryParseExact(confirmedDateStr, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var confirmedDate))
-                    {
-                        throw new Exception($"{i + 1}行目: 入庫確認日のフォーマットが不正です。");
-                    }
-
-                    int.TryParse(typeStr, out var inboundType);
-                    if (inboundType < 1 || inboundType > 3) inboundType = 1;
-
-                    int.TryParse(palletStr, out var palletCount);
-                    int.TryParse(caseStr, out var caseCount);
-                    if (caseCount <= 0)
-                    {
-                        throw new Exception($"{i + 1}行目: ケース数は1以上を指定してください。");
-                    }
-
-                    var inbound = new Inbound
-                    {
-                        InboundId = Guid.NewGuid(),
-                        ShipperId = shipperId,
-                        WarehouseId = warehouseId,
-                        ProductId = productId,
-                        ScheduledDate = actualDate,
-                        ActualDate = actualDate,
-                        ConfirmedDate = confirmedDate,
-                        InboundType = inboundType,
-                        PalletCount = palletCount,
-                        CaseCount = caseCount,
-                        Remarks = remarks,
-                        Status = 11, // 11: 確認済
-                        IsDeleted = false
-                    };
-                    _context.Inbounds.Add(inbound);
-
-                    // 在庫（t_inventory）の自動作成
-                    for (int k = 0; k < caseCount; k++)
-                    {
-                        var inv = new Inventory
+                        if (string.IsNullOrWhiteSpace(productId))
                         {
-                            InventoryId = Guid.NewGuid(),
-                            InboundId = inbound.InboundId,
+                            throw new Exception($"{i + 1}行目: 商品IDが空です。");
+                        }
+                        if (!productIds.Contains(productId))
+                        {
+                            throw new Exception($"{i + 1}行目: 商品ID '{productId}' は商品マスタに存在しません。");
+                        }
+
+                        var currentProduct = productsDict[productId];
+
+                        // 日付パース (yyyyMMdd)
+                        if (!DateTime.TryParseExact(actualDateStr, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var actualDate))
+                        {
+                            throw new Exception($"{i + 1}行目: 入庫実績日のフォーマットが不正です。");
+                        }
+
+                        if (!DateTime.TryParseExact(confirmedDateStr, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var confirmedDate))
+                        {
+                            throw new Exception($"{i + 1}行目: 入庫確認日のフォーマットが不正です。");
+                        }
+
+                        int.TryParse(typeStr, out var inboundType);
+                        if (inboundType < 1 || inboundType > 3) inboundType = 1;
+
+                        int.TryParse(palletStr, out var palletCount);
+                        int.TryParse(caseStr, out var caseCount);
+                        if (caseCount <= 0)
+                        {
+                            throw new Exception($"{i + 1}行目: ケース数は1以上を指定してください。");
+                        }
+
+                        var inbound = new Inbound
+                        {
+                            InboundId = Guid.NewGuid(),
                             ShipperId = shipperId,
                             WarehouseId = warehouseId,
                             ProductId = productId,
-                            ActualInboundDate = actualDate,
-                            ScheduledOutboundDate = null,
-                            ActualOutboundDate = null,
-                            CurrentQuantity = currentProduct.Quantity,
-                            IsLoose = false,
-                            Status = 1
+                            ScheduledDate = actualDate,
+                            ActualDate = actualDate,
+                            ConfirmedDate = confirmedDate,
+                            InboundType = inboundType,
+                            PalletCount = palletCount,
+                            CaseCount = caseCount,
+                            Remarks = remarks,
+                            Status = 11, // 11: 確認済
+                            IsDeleted = false
                         };
-                        _context.Inventories.Add(inv);
-                    }
-                }
+                        _context.Inbounds.Add(inbound);
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                        // 在庫（t_inventory）の自動作成
+                        for (int k = 0; k < caseCount; k++)
+                        {
+                            var inv = new Inventory
+                            {
+                                InventoryId = Guid.NewGuid(),
+                                InboundId = inbound.InboundId,
+                                ShipperId = shipperId,
+                                WarehouseId = warehouseId,
+                                ProductId = productId,
+                                ActualInboundDate = actualDate,
+                                ScheduledOutboundDate = null,
+                                ActualOutboundDate = null,
+                                CurrentQuantity = currentProduct.Quantity,
+                                IsLoose = false,
+                                Status = 1
+                            };
+                            _context.Inventories.Add(inv);
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
 
                 TempData["SuccessMessage"] = "入庫報告CSVの取り込みおよび在庫反映が完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
                 var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
                 TempData["ErrorMessage"] = $"取り込みエラー: {detail}";
             }

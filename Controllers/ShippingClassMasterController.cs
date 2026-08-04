@@ -203,93 +203,97 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                for (int i = 1; i < rows.Count; i++)
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 3) continue;
-
-                    string idStr = r[0];
-                    if (!Guid.TryParse(r[1], out var carrierId)) continue;
-
-                    int rateTableType = 1;
-                    string name = "";
-
-                    if (r.Length == 4)
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        name = r[3];
-                    }
-                    else if (r.Length >= 5)
-                    {
-                        if (int.TryParse(r[3], out var val))
+                        var r = rows[i];
+                        if (r.Length < 3) continue;
+
+                        string idStr = r[0];
+                        if (!Guid.TryParse(r[1], out var carrierId)) continue;
+
+                        int rateTableType = 1;
+                        string name = "";
+
+                        if (r.Length == 4)
                         {
-                            rateTableType = val;
+                            name = r[3];
                         }
-                        name = r[4];
-                    }
-                    else
-                    {
-                        name = r[2];
-                    }
-
-                    if (string.IsNullOrWhiteSpace(name)) continue;
-
-                    if (string.IsNullOrWhiteSpace(idStr))
-                    {
-                        var newClass = new ShippingClass
+                        else if (r.Length >= 5)
                         {
-                            ShippingClassId = Guid.NewGuid(),
-                            CarrierId = carrierId,
-                            RateTableType = rateTableType,
-                            ClassName = name
-                        };
-                        _context.ShippingClasses.Add(newClass);
-                    }
-                    else
-                    {
-                        if (!Guid.TryParse(idStr, out var id))
-                        {
-                            throw new Exception($"{i + 1}行目: 出庫区分IDのフォーマットが不正です。");
-                        }
-                        var existing = await _context.ShippingClasses.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.ShippingClassId == id)
-                                    ?? _context.ShippingClasses.Local.FirstOrDefault(s => s.ShippingClassId == id);
-                        if (existing == null)
-                        {
-                            if (!createIfNotFound)
+                            if (int.TryParse(r[3], out var val))
                             {
-                                throw new Exception($"{i + 1}行目: 指定された出庫区分ID ({idStr}) のレコードが存在しません。");
+                                rateTableType = val;
                             }
-                            existing = new ShippingClass
+                            name = r[4];
+                        }
+                        else
+                        {
+                            name = r[2];
+                        }
+
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+
+                        if (string.IsNullOrWhiteSpace(idStr))
+                        {
+                            var newClass = new ShippingClass
                             {
-                                ShippingClassId = id,
+                                ShippingClassId = Guid.NewGuid(),
                                 CarrierId = carrierId,
                                 RateTableType = rateTableType,
                                 ClassName = name
                             };
-                            _context.ShippingClasses.Add(existing);
+                            _context.ShippingClasses.Add(newClass);
                         }
                         else
                         {
-                            existing.CarrierId = carrierId;
-                            existing.RateTableType = rateTableType;
-                            existing.ClassName = name;
-                            existing.IsDeleted = false;
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 出庫区分IDのフォーマットが不正です。({idStr})");
+                            }
+                            var existing = await _context.ShippingClasses.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.ShippingClassId == id)
+                                        ?? _context.ShippingClasses.Local.FirstOrDefault(s => s.ShippingClassId == id);
+                            if (existing == null)
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された出庫区分ID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new ShippingClass
+                                {
+                                    ShippingClassId = id,
+                                    CarrierId = carrierId,
+                                    RateTableType = rateTableType,
+                                    ClassName = name
+                                };
+                                _context.ShippingClasses.Add(existing);
+                            }
+                            else
+                            {
+                                existing.CarrierId = carrierId;
+                                existing.RateTableType = rateTableType;
+                                existing.ClassName = name;
+                                existing.IsDeleted = false;
+                            }
                         }
                     }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
                 TempData["SuccessMessage"] = "CSVのインポートが完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"インポートエラー: {detail}";
+                TempData["ErrorMessage"] = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}";
             }
 
             return RedirectToAction(nameof(Index));

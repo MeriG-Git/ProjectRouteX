@@ -16,6 +16,7 @@
 | [TICK-005](file:///c:/011_%E9%96%8B%E7%99%BA/ProjectRouteX/team/tickets/TICK-005.md) | DDD/OOPに基づくクリーンアーキテクチャ・コード設計標準化 | 開発アーキテクチャー | 🟡 中 | 📋 Backlog | 30% | 2026-08-03 |
 | [TICK-006](file:///c:/011_%E9%96%8B%E7%99%BA/ProjectRouteX/team/tickets/TICK-006.md) | SaaS型セキュリティポリシー & RBAC認可基盤設計 | セキュリティ管理者 | 🟡 中 | 📋 Backlog | 20% | 2026-08-03 |
 | [TICK-007](file:///c:/011_%E9%96%8B%E7%99%BA/ProjectRouteX/team/tickets/TICK-007.md) | 自動テスト設計 & 単体/結合テスト自動化パイプライン | テスト設計者 | 🟡 中 | 📋 Backlog | 20% | 2026-08-03 |
+| [TICK-008](file:///c:/011_%E9%96%8B%E7%99%BA/ProjectRouteX/team/tickets/TICK-008.md) | 荷主CSVインポート時のEF Coreリトライ戦略トランザクションエラー解消とエラー表示改善 | 全エージェント合議 (PM主導) | 🔥 高 | ✅ Done | 100% | 2026-08-03 |
 
 ---
 

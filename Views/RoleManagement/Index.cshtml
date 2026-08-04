@@ -1,0 +1,108 @@
+@model IEnumerable<RouteXWms.Models.Role>
+@{
+    ViewData["Title"] = "ロール設定";
+    var rolePermissions = ViewBag.RolePermissions as List<RouteXWms.Models.RolePermission> ?? new List<RouteXWms.Models.RolePermission>();
+    var permissions = ViewBag.Permissions as List<RouteXWms.Models.Permission> ?? new List<RouteXWms.Models.Permission>();
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="h4 text-dark font-weight-bold mb-1"><i class="bi bi-shield-lock me-2"></i>ロール・権限マスタ管理</h2>
+        <p class="text-muted small mb-0">システム内の各ロール（役割）とそれに付与する権限（パーミッション）を設定します。</p>
+    </div>
+    <div>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createRoleModal">
+            <i class="bi bi-plus-lg me-1"></i>新規ロール作成
+        </button>
+    </div>
+</div>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i>@TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>@TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light text-muted small text-uppercase">
+                    <tr>
+                        <th class="ps-4">ID</th>
+                        <th>ロールコード</th>
+                        <th>ロール名</th>
+                        <th>説明</th>
+                        <th>付与済み権限数</th>
+                        <th class="text-end pe-4">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var role in Model)
+                    {
+                        var permCount = rolePermissions.Count(rp => rp.RoleId == role.RoleId);
+                        <tr>
+                            <td class="ps-4 fw-bold text-secondary">@role.RoleId</td>
+                            <td><span class="badge bg-dark bg-opacity-75 font-monospace">@role.RoleCode</span></td>
+                            <td class="fw-bold text-dark">@role.RoleName</td>
+                            <td class="text-muted small">@(string.IsNullOrEmpty(role.Description) ? "-" : role.Description)</td>
+                            <td>
+                                <span class="badge bg-info text-dark rounded-pill">
+                                    <i class="bi bi-key-fill me-1"></i>@permCount / @permissions.Count 件
+                                </span>
+                            </td>
+                            <td class="text-end pe-4">
+                                <a asp-action="EditPermissions" asp-route-id="@role.RoleId" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-gear-fill me-1"></i>権限のカスタマイズ
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 新規ロール作成モーダル -->
+<div class="modal fade" id="createRoleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form asp-action="CreateRole" method="post">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title font-weight-bold"><i class="bi bi-plus-circle me-2"></i>新規ロール作成</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">ロールコード (英数字) <span class="text-danger">*</span></label>
+                        <input type="text" name="roleCode" class="form-control" placeholder="例: LogisticsManager" required pattern="[A-Za-z0-9_]+" />
+                        <div class="form-text small">プログラム内で判別用に使用する英数字識別子です。</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">ロール表示名 <span class="text-danger">*</span></label>
+                        <input type="text" name="roleName" class="form-control" placeholder="例: 物流マネージャー" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">説明</label>
+                        <textarea name="description" class="form-control" rows="2" placeholder="ロールの役割や対象ユーザーについての説明"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>作成</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

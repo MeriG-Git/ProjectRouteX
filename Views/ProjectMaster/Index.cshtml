@@ -1,0 +1,568 @@
+@using System.Text.Json
+@model IEnumerable<RouteXWms.Models.Project>
+@{
+    ViewData["Title"] = "案件管理";
+    var shippers = ViewBag.Shippers as List<RouteXWms.Models.Shipper> ?? new List<RouteXWms.Models.Shipper>();
+    var warehouses = ViewBag.Warehouses as List<RouteXWms.Models.Warehouse> ?? new List<RouteXWms.Models.Warehouse>();
+    var freightTables = ViewBag.FreightTables as List<RouteXWms.Models.FreightTable> ?? new List<RouteXWms.Models.FreightTable>();
+    Guid? selectedShipper = ViewBag.SelectedShipper as Guid?;
+    string? searchKeyword = ViewBag.SearchKeyword as string;
+    bool showDeleted = ViewBag.ShowDeleted != null && (bool)ViewBag.ShowDeleted;
+    int currentPage = ViewBag.CurrentPage != null ? (int)ViewBag.CurrentPage : 1;
+    int totalPages = ViewBag.TotalPages != null ? (int)ViewBag.TotalPages : 1;
+    int pageSize = ViewBag.PageSize != null ? (int)ViewBag.PageSize : 10;
+    int totalCount = ViewBag.TotalCount != null ? (int)ViewBag.TotalCount : 0;
+}
+
+<div class="wms-card">
+    <!-- カードヘッダー -->
+    <div class="wms-card-header">
+        <h2 class="wms-card-title"><i class="bi bi-briefcase me-2 text-primary"></i>案件管理一覧</h2>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-wms-primary" onclick="openCreateModal()">
+                <i class="bi bi-plus-lg me-1"></i> 新規作成
+            </button>
+            <button type="button" class="btn btn-wms-secondary" onclick="openImportModal()">
+                <i class="bi bi-upload me-1"></i> CSV/Excelインポート
+            </button>
+            <a class="btn btn-wms-secondary" asp-action="ExportCsv" asp-route-shipperId="@selectedShipper">
+                <i class="bi bi-download me-1"></i> エクスポート
+            </a>
+        </div>
+    </div>
+
+    <!-- 絞り込み・検索フォーム -->
+    <form method="get" asp-action="Index" class="row g-3 mb-4">
+        <div class="col-md-3">
+            <label class="form-label text-secondary small fw-bold mb-1">荷主絞り込み</label>
+            <select name="shipperId" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <option value="">-- 全すべての荷主 --</option>
+                @foreach (var s in shippers)
+                {
+                    <option value="@s.ShipperId" selected="@(selectedShipper == s.ShipperId ? "selected" : null)">@s.ShipperName</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label text-secondary small fw-bold mb-1">キーワード検索</label>
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-search"></i></span>
+                <input type="text" name="searchKeyword" value="@searchKeyword" class="form-control bg-dark text-white border-secondary" placeholder="案件名で検索..." />
+            </div>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label text-secondary small fw-bold mb-1">表示件数</label>
+            <select name="pageSize" class="form-select bg-dark text-white border-secondary" onchange="this.form.submit()">
+                <!option value="10" @(pageSize == 10 ? "selected" : "")>10件 / ページ</!option>
+                <!option value="20" @(pageSize == 20 ? "selected" : "")>20件 / ページ</!option>
+                <!option value="50" @(pageSize == 50 ? "selected" : "")>50件 / ページ</!option>
+                <!option value="100" @(pageSize == 100 ? "selected" : "")>100件 / ページ</!option>
+            </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-end justify-content-between">
+            <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" name="showDeleted" value="true" id="showDeletedCheck" @(showDeleted ? "checked" : "") onchange="this.form.submit()" />
+                <label class="form-check-label text-secondary ms-2 small" for="showDeletedCheck">削除済みを表示</label>
+            </div>
+            <button type="submit" class="btn btn-wms-secondary px-3 mb-1">絞り込み</button>
+        </div>
+    </form>
+
+    <!-- テーブルエリア -->
+    <div class="table-responsive">
+        <table class="table table-wms">
+            <thead>
+                <tr>
+                    <th style="width: 200px;">荷主名</th>
+                    <th style="width: 260px;">案件名</th>
+                    <th>利用可能倉庫 (荷主＋案件)</th>
+                    <th>適用運賃料金表 (荷主＋案件＋倉庫)</th>
+                    <th class="text-end" style="width: 180px;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr>
+                        <td colspan="5" class="text-center text-secondary py-4">対象の案件データが存在しません。</td>
+                    </tr>
+                }
+                else
+                {
+                    foreach (var item in Model)
+                    {
+                        bool isDel = item.IsDeleted;
+                        var activeWarehouses = item.ProjectWarehouses.Where(pw => !pw.IsDeleted).Select(pw => pw.Warehouse).Where(w => w != null).ToList();
+                        var activeFreightTables = item.ProjectWarehouseFreightTables.Where(pwft => !pwft.IsDeleted).Select(pwft => pwft.FreightTable).Where(ft => ft != null).ToList();
+
+                        <tr class="@(isDel ? "opacity-50" : "")">
+                            <td>
+                                <span class="fw-bold text-dark fs-6" style="color: #0f172a !important;">@(item.Shipper?.ShipperName ?? "-")</span>
+                            </td>
+                            <td>
+                                <span class="fw-bold text-dark fs-6" style="color: #0f172a !important;">@item.ProjectName</span>
+                                @if (!string.IsNullOrEmpty(item.Remarks))
+                                {
+                                    <br /><small class="text-secondary" style="color: #475569 !important;">@item.Remarks</small>
+                                }
+                            </td>
+                            <td>
+                                @if (activeWarehouses.Any())
+                                {
+                                    <div class="d-flex flex-wrap gap-1">
+                                        @foreach (var w in activeWarehouses)
+                                        {
+                                            <span class="badge" style="background-color: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; font-size: 0.8rem; padding: 0.4em 0.7em; font-weight: 600;">
+                                                <i class="bi bi-building me-1"></i>@w?.WarehouseName
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-light text-secondary border border-secondary">未割り当て</span>
+                                }
+                            </td>
+                            <td>
+                                @if (activeFreightTables.Any())
+                                {
+                                    <div class="d-flex flex-wrap gap-1">
+                                        @foreach (var ft in activeFreightTables.Distinct())
+                                        {
+                                            <span class="badge" style="background-color: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 0.8rem; padding: 0.4em 0.7em; font-weight: 600;">
+                                                <i class="bi bi-calculator me-1"></i>@ft?.RateName
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-light text-warning border border-warning">未設定</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <div class="btn-group btn-group-sm">
+                                    @if (!isDel)
+                                    {
+                                        <button type="button" class="btn btn-outline-primary" title="編集" onclick="openEditModal('@item.ProjectId', '@item.ShipperId', '@item.ProjectName', '@item.Remarks')">
+                                            <i class="bi bi-pencil me-1"></i>編集
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info" title="利用倉庫・料金表設定" onclick="openWarehouseSettingModal('@item.ProjectId', '@item.ProjectName', '@System.Text.Json.JsonSerializer.Serialize(activeWarehouses.Select(w => w!.WarehouseId))')">
+                                            <i class="bi bi-gear me-1"></i>設定
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger" title="削除" onclick="deleteProject('@item.ProjectId', '@item.ProjectName')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary" title="復元" onclick="restoreProject('@item.ProjectId')">
+                                            <i class="bi bi-arrow-counterclockwise me-1"></i>復元
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ページネーション -->
+    @if (totalPages > 1)
+    {
+        <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top border-secondary border-opacity-25">
+            <div class="text-secondary small">
+                全 @totalCount 件中 @((currentPage - 1) * pageSize + 1) 〜 @(Math.Min(currentPage * pageSize, totalCount)) 件を表示
+            </div>
+            <nav>
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                        <a class="page-link bg-dark text-white border-secondary" href="@Url.Action("Index", new { shipperId = selectedShipper, searchKeyword = searchKeyword, showDeleted = showDeleted, page = currentPage - 1, pageSize = pageSize })">前へ</a>
+                    </li>
+                    @for (int p = 1; p <= totalPages; p++)
+                    {
+                        <li class="page-item @(p == currentPage ? "active" : "")">
+                            <a class="page-link @(p == currentPage ? "bg-primary border-primary text-white" : "bg-dark text-white border-secondary")" href="@Url.Action("Index", new { shipperId = selectedShipper, searchKeyword = searchKeyword, showDeleted = showDeleted, page = p, pageSize = pageSize })">@p</a>
+                        </li>
+                    }
+                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                        <a class="page-link bg-dark text-white border-secondary" href="@Url.Action("Index", new { shipperId = selectedShipper, searchKeyword = searchKeyword, showDeleted = showDeleted, page = currentPage + 1, pageSize = pageSize })">次へ</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    }
+</div>
+
+<!-- 案件登録・編集モーダル (WMS統一ダークスタイル) -->
+<div class="modal fade" id="projectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="projectModalTitle"><i class="bi bi-briefcase me-2 text-primary"></i>案件情報</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="projectForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="modalProjectId" name="projectId" />
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold">対象荷主 <span class="text-danger">*</span></label>
+                        <select id="modalShipperId" name="shipperId" class="form-select bg-dark text-white border-secondary" required>
+                            <option value="">-- 荷主を選択してください --</option>
+                            @foreach (var s in shippers)
+                            {
+                                <option value="@s.ShipperId">@s.ShipperName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold">案件名称 <span class="text-danger">*</span></label>
+                        <input type="text" id="modalProjectName" name="projectName" class="form-control bg-dark text-white border-secondary" required maxlength="64" placeholder="例: EC通販 プロモーション案件" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold">備考</label>
+                        <textarea id="modalRemarks" name="remarks" class="form-control bg-dark text-white border-secondary" rows="3" placeholder="特記事項があれば入力"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-wms-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-wms-primary"><i class="bi bi-save me-1"></i>保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 案件利用倉庫および料金表設定モーダル -->
+<div class="modal fade" id="warehouseSettingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="bi bi-sliders me-2 text-info"></i>利用倉庫および料金表紐づけ設定</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <h6 id="settingProjectTitle" class="fw-bold mb-3 text-info"></h6>
+                <form id="warehouseSettingForm">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" id="settingProjectId" name="projectId" />
+                    <div class="card bg-dark text-white border-secondary mb-3">
+                        <div class="card-header fw-bold border-secondary bg-secondary bg-opacity-25">1. 利用可能倉庫の選択 (荷主＋案件)</div>
+                        <div class="card-body">
+                            <div class="row g-2">
+                                @foreach (var w in warehouses)
+                                {
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input wh-checkbox" type="checkbox" name="warehouseIds" value="@w.WarehouseId" id="wh_@w.WarehouseId" />
+                                            <label class="form-check-label text-light" for="wh_@w.WarehouseId">
+                                                <strong>@w.WarehouseName</strong> <small class="text-secondary">(@w.ZipCode)</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card bg-dark text-white border-secondary">
+                        <div class="card-header fw-bold border-secondary bg-secondary bg-opacity-25">2. 各倉庫の適用運賃料金表設定 (荷主＋案件＋倉庫)</div>
+                        <div class="card-body">
+                            <p class="small text-secondary mb-2">利用可能としてチェックされた倉庫ごとに、適用する運賃料金表を選択してください。</p>
+                            <div id="freightTableSettingContainer">
+                                <span class="text-secondary small">倉庫を選択すると料金表設定欄が表示されます。</span>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-wms-secondary" data-bs-dismiss="modal">閉じる</button>
+                <button type="button" class="btn btn-wms-primary" onclick="saveAllSettings()"><i class="bi bi-check-circle me-1"></i>設定保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- リアルタイムインポートモーダル -->
+<div class="modal fade" id="importModal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-excel me-2 text-success"></i>案件マスター一括インポート</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" id="btnImportClose"></button>
+            </div>
+            <div class="modal-body">
+                <form id="importForm" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small fw-bold">対象Excel/CSVファイル</label>
+                        <input type="file" id="importFile" name="csvFile" class="form-control bg-dark text-white border-secondary" accept=".xlsx,.csv" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small">補足荷主（ファイル内に荷主名がない場合の補填）</label>
+                        <select name="defaultShipperId" class="form-select bg-dark text-white border-secondary form-select-sm">
+                            <option value="">-- 自動判定 --</option>
+                            @foreach (var s in shippers)
+                            {
+                                <option value="@s.ShipperId">@s.ShipperName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div id="progressArea" class="d-none mt-4 p-3 bg-black bg-opacity-50 rounded border border-secondary">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span id="phaseBadge" class="badge bg-primary">【1/4】ファイル読み込み中</span>
+                            <span id="speedBadge" class="badge bg-secondary">0 件/秒</span>
+                        </div>
+                        <div class="progress mb-2 bg-dark" style="height: 20px;">
+                            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
+                        </div>
+                        <div class="small text-secondary d-flex justify-content-between">
+                            <span id="progressMessage">準備中...</span>
+                            <span id="progressStats">0 / 0 件</span>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-wms-secondary" data-bs-dismiss="modal" id="btnImportCancel">キャンセル</button>
+                <button type="button" class="btn btn-wms-primary" id="btnImportSubmit" onclick="startImport()"><i class="bi bi-upload me-1"></i>実行</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        const projectModal = new bootstrap.Modal(document.getElementById('projectModal'));
+        const warehouseSettingModal = new bootstrap.Modal(document.getElementById('warehouseSettingModal'));
+        const importModal = new bootstrap.Modal(document.getElementById('importModal'));
+
+        const allFreightTables = @Json.Serialize(freightTables.Select(f => new { f.FreightTableId, f.RateName }));
+
+        function openCreateModal() {
+            document.getElementById('projectForm').reset();
+            document.getElementById('modalProjectId').value = '';
+            document.getElementById('projectModalTitle').innerHTML = '<i class="bi bi-briefcase me-2 text-primary"></i>新規案件作成';
+            projectModal.show();
+        }
+
+        function openEditModal(id, shipperId, name, remarks) {
+            document.getElementById('modalProjectId').value = id;
+            document.getElementById('modalShipperId').value = shipperId;
+            document.getElementById('modalProjectName').value = name;
+            document.getElementById('modalRemarks').value = remarks || '';
+            document.getElementById('projectModalTitle').innerHTML = '<i class="bi bi-pencil me-2 text-primary"></i>案件情報編集';
+            projectModal.show();
+        }
+
+        document.getElementById('projectForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            try {
+                const response = await fetch('@Url.Action("Save")', {
+                    method: 'POST',
+                    body: formData
+                });
+                const res = await response.json();
+                if (res.success) {
+                    location.reload();
+                } else {
+                    alert('エラー: ' + res.message);
+                }
+            } catch (err) {
+                alert('通信エラーが発生しました。');
+            }
+        });
+
+        function openWarehouseSettingModal(projectId, projectName, selectedWhIdsJson) {
+            document.getElementById('settingProjectId').value = projectId;
+            document.getElementById('settingProjectTitle').innerText = '案件: ' + projectName;
+            
+            const selectedWhIds = JSON.parse(selectedWhIdsJson || '[]');
+            document.querySelectorAll('.wh-checkbox').forEach(cb => {
+                cb.checked = selectedWhIds.includes(cb.value);
+            });
+
+            renderFreightTableSettings();
+            warehouseSettingModal.show();
+        }
+
+        document.querySelectorAll('.wh-checkbox').forEach(cb => {
+            cb.addEventListener('change', renderFreightTableSettings);
+        });
+
+        function renderFreightTableSettings() {
+            const container = document.getElementById('freightTableSettingContainer');
+            container.innerHTML = '';
+
+            const checkedBoxes = Array.from(document.querySelectorAll('.wh-checkbox:checked'));
+            if (checkedBoxes.length === 0) {
+                container.innerHTML = '<span class="text-secondary small">利用可能倉庫にチェックを入れると設定項目が表示されます。</span>';
+                return;
+            }
+
+            checkedBoxes.forEach(cb => {
+                const whId = cb.value;
+                const whName = cb.nextElementSibling.querySelector('strong').innerText;
+
+                const card = document.createElement('div');
+                card.className = 'border border-secondary rounded p-2 mb-2 bg-dark';
+                
+                let ftCheckboxesHtml = '';
+                allFreightTables.forEach(ft => {
+                    ftCheckboxesHtml += `
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input ft-cb-${whId}" type="checkbox" value="${ft.freightTableId}" id="ft_${whId}_${ft.freightTableId}" checked />
+                            <label class="form-check-label small text-light" for="ft_${whId}_${ft.freightTableId}">${ft.rateName}</label>
+                        </div>
+                    `;
+                });
+
+                card.innerHTML = `
+                    <div class="fw-bold small text-info mb-1"><i class="bi bi-building me-1"></i>${whName}</div>
+                    <div>${ftCheckboxesHtml}</div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        async function saveAllSettings() {
+            const projectId = document.getElementById('settingProjectId').value;
+            const checkedWhBoxes = Array.from(document.querySelectorAll('.wh-checkbox:checked'));
+            const whIds = checkedWhBoxes.map(cb => cb.value);
+
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+            const whFormData = new FormData();
+            whFormData.append('__RequestVerificationToken', token);
+            whFormData.append('projectId', projectId);
+            whIds.forEach(id => whFormData.append('warehouseIds', id));
+
+            try {
+                const whRes = await fetch('@Url.Action("SaveWarehouses")', { method: 'POST', body: whFormData });
+                const whJson = await whRes.json();
+                if (!whJson.success) {
+                    alert('倉庫設定エラー: ' + whJson.message);
+                    return;
+                }
+
+                for (const cb of checkedWhBoxes) {
+                    const whId = cb.value;
+                    const selectedFtIds = Array.from(document.querySelectorAll(`.ft-cb-${whId}:checked`)).map(c => c.value);
+
+                    const ftFormData = new FormData();
+                    ftFormData.append('__RequestVerificationToken', token);
+                    ftFormData.append('projectId', projectId);
+                    ftFormData.append('warehouseId', whId);
+                    selectedFtIds.forEach(id => ftFormData.append('freightTableIds', id));
+
+                    const ftRes = await fetch('@Url.Action("SaveFreightTables")', { method: 'POST', body: ftFormData });
+                    const ftJson = await ftRes.json();
+                    if (!ftJson.success) {
+                        alert('料金表設定エラー: ' + ftJson.message);
+                        return;
+                    }
+                }
+
+                location.reload();
+            } catch (err) {
+                alert('設定保存中に通信エラーが発生しました。');
+            }
+        }
+
+        async function deleteProject(id, name) {
+            if (!confirm(`案件「${name}」を削除しますか？`)) return;
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+            const formData = new FormData();
+            formData.append('__RequestVerificationToken', token);
+            formData.append('projectId', id);
+
+            const res = await fetch('@Url.Action("Delete")', { method: 'POST', body: formData });
+            const json = await res.json();
+            if (json.success) location.reload();
+            else alert(json.message);
+        }
+
+        async function restoreProject(id) {
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+            const formData = new FormData();
+            formData.append('__RequestVerificationToken', token);
+            formData.append('projectId', id);
+
+            const res = await fetch('@Url.Action("Restore")', { method: 'POST', body: formData });
+            const json = await res.json();
+            if (json.success) location.reload();
+            else alert(json.message);
+        }
+
+        function openImportModal() {
+            document.getElementById('importForm').reset();
+            document.getElementById('progressArea').classList.add('d-none');
+            importModal.show();
+        }
+
+        async function startImport() {
+            const fileInput = document.getElementById('importFile');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('ファイルを選択してください。');
+                return;
+            }
+
+            const formData = new FormData(document.getElementById('importForm'));
+            document.getElementById('progressArea').classList.remove('d-none');
+            document.getElementById('btnImportSubmit').disabled = true;
+
+            try {
+                const response = await fetch('@Url.Action("ImportCsvStream")', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = JSON.parse(line.substring(6));
+
+                            if (data.status === 'progress') {
+                                document.getElementById('phaseBadge').innerText = `【${data.phase}/4】${data.phaseText}`;
+                                if (data.percent !== undefined) {
+                                    document.getElementById('progressBar').style.width = data.percent + '%';
+                                    document.getElementById('progressBar').innerText = data.percent + '%';
+                                }
+                                if (data.speed !== undefined) {
+                                    document.getElementById('speedBadge').innerText = data.speed + ' 件/秒';
+                                }
+                                document.getElementById('progressMessage').innerText = data.message || '';
+                                if (data.processed !== undefined && data.total !== undefined) {
+                                    document.getElementById('progressStats').innerText = `${data.processed} / ${data.total} 件`;
+                                }
+                            } else if (data.status === 'complete') {
+                                alert(data.message);
+                                location.reload();
+                            } else if (data.status === 'error') {
+                                alert('エラー: ' + data.message);
+                                document.getElementById('btnImportSubmit').disabled = false;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                alert('インポート処理中に通信エラーが発生しました。');
+                document.getElementById('btnImportSubmit').disabled = false;
+            }
+        }
+    </script>
+}

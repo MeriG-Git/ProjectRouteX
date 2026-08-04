@@ -36,10 +36,13 @@ namespace RouteXWms.Models
         [Required]
         public Guid ShipperId { get; set; }
 
+        /// <summary>案件ID</summary>
+        [Column("project_id")]
+        public Guid? ProjectId { get; set; }
+
         /// <summary>指定運送会社ID</summary>
         [Column("carrier_id")]
-        [Required]
-        public Guid CarrierId { get; set; }
+        public Guid? CarrierId { get; set; }
 
         /// <summary>重量指定区分</summary>
         [Column("weight_spec", TypeName = "varchar(32)")]
@@ -76,6 +79,10 @@ namespace RouteXWms.Models
         /// <summary>関連荷主オブジェクト</summary>
         [ForeignKey(nameof(ShipperId))]
         public virtual Shipper? Shipper { get; set; }
+
+        /// <summary>関連案件オブジェクト</summary>
+        [ForeignKey(nameof(ProjectId))]
+        public virtual Project? Project { get; set; }
 
         /// <summary>関連運送会社オブジェクト</summary>
         [ForeignKey(nameof(CarrierId))]

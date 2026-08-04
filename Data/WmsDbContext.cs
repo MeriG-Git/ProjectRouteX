@@ -48,8 +48,12 @@ namespace RouteXWms.Data
         public DbSet<FreightTable> FreightTables { get; set; } = null!;
         /// <summary>距離別運賃マスターデータセット</summary>
         public DbSet<DistanceFreight> DistanceFreights { get; set; } = null!;
-        /// <summary>倉庫距離掛率マスターデータセット</summary>
-        public DbSet<WarehouseDistanceRate> WarehouseDistanceRates { get; set; } = null!;
+        /// <summary>案件マスターデータセット</summary>
+        public DbSet<Project> Projects { get; set; } = null!;
+        /// <summary>案件利用倉庫マスターデータセット</summary>
+        public DbSet<ProjectWarehouse> ProjectWarehouses { get; set; } = null!;
+        /// <summary>案件倉庫料金表マスターデータセット</summary>
+        public DbSet<ProjectWarehouseFreightTable> ProjectWarehouseFreightTables { get; set; } = null!;
         /// <summary>距離マスターデータセット</summary>
         public DbSet<Distance> Distances { get; set; } = null!;
         /// <summary>個別運賃マスターデータセット</summary>
@@ -64,6 +68,14 @@ namespace RouteXWms.Data
         public DbSet<Outbound> Outbounds { get; set; } = null!;
         /// <summary>出荷引当明細データセット</summary>
         public DbSet<OutboundAllocation> OutboundAllocations { get; set; } = null!;
+        /// <summary>ロールマスターデータセット</summary>
+        public DbSet<Role> Roles { get; set; } = null!;
+        /// <summary>パーミッションマスターデータセット</summary>
+        public DbSet<Permission> Permissions { get; set; } = null!;
+        /// <summary>アカウント・ロール割り当てデータセット</summary>
+        public DbSet<AccountRole> AccountRoles { get; set; } = null!;
+        /// <summary>ロール・パーミッション割り当てデータセット</summary>
+        public DbSet<RolePermission> RolePermissions { get; set; } = null!;
         #endregion
 
         /// <summary>
@@ -75,13 +87,25 @@ namespace RouteXWms.Data
             base.OnModelCreating(modelBuilder);
 
             // 複合主キーの構成
-            // 倉庫距離掛率マスター（倉庫ID × 運賃表ID）
-            modelBuilder.Entity<WarehouseDistanceRate>()
-                .HasKey(w => new { w.WarehouseId, w.FreightTableId });
+            // 案件利用倉庫マスター（案件ID × 倉庫ID）
+            modelBuilder.Entity<ProjectWarehouse>()
+                .HasKey(pw => new { pw.ProjectId, pw.WarehouseId });
+
+            // 案件倉庫料金表マスター（案件ID × 倉庫ID × 料金表ID）
+            modelBuilder.Entity<ProjectWarehouseFreightTable>()
+                .HasKey(pwf => new { pwf.ProjectId, pwf.WarehouseId, pwf.FreightTableId });
 
             // 距離マスター（運賃表ID × 市区町村コード）
             modelBuilder.Entity<Distance>()
                 .HasKey(d => new { d.FreightTableId, d.CityCode });
+
+            // アカウント・ロール割り当て（アカウント名 × ロールID）
+            modelBuilder.Entity<AccountRole>()
+                .HasKey(ar => new { ar.AccountName, ar.RoleId });
+
+            // ロール・パーミッション割り当て（ロールID × パーミッションID）
+            modelBuilder.Entity<RolePermission>()
+                .HasKey(rp => new { rp.RoleId, rp.PermissionId });
 
             // 外部キー削除時の連鎖削除（カスケード削除）の禁止設定（参照整合性保護）
             foreach (var relationship in modelBuilder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))
@@ -91,7 +115,12 @@ namespace RouteXWms.Data
 
             // 論理削除（IsDeleted == false）のグローバルクエリフィルター設定
             modelBuilder.Entity<Account>().HasQueryFilter(e => !e.IsDeleted);
+            modelBuilder.Entity<Role>().HasQueryFilter(e => !e.IsDeleted);
+            modelBuilder.Entity<Permission>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<Shipper>().HasQueryFilter(e => !e.IsDeleted);
+            modelBuilder.Entity<Project>().HasQueryFilter(e => !e.IsDeleted);
+            modelBuilder.Entity<ProjectWarehouse>().HasQueryFilter(e => !e.IsDeleted);
+            modelBuilder.Entity<ProjectWarehouseFreightTable>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<Warehouse>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<Product>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<ZipCode>().HasQueryFilter(e => !e.IsDeleted);
@@ -100,7 +129,6 @@ namespace RouteXWms.Data
             modelBuilder.Entity<Carrier>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<FreightTable>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<DistanceFreight>().HasQueryFilter(e => !e.IsDeleted);
-            modelBuilder.Entity<WarehouseDistanceRate>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<Distance>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<IndividualFreight>().HasQueryFilter(e => !e.IsDeleted);
             modelBuilder.Entity<Inbound>().HasQueryFilter(e => !e.IsDeleted);
@@ -134,8 +162,10 @@ namespace RouteXWms.Data
         /// </summary>
         private void ApplyAuditAndSoftDelete()
         {
-            // セッションより現在操作中のアカウント名を取得（無効時は"SYSTEM"）
-            var currentUsername = _httpContextAccessor?.HttpContext?.Session.GetString("AccountName") ?? "SYSTEM";
+            // Claims認証よりアカウント名を取得（フォールバック: セッション/SYSTEM）
+            var currentUsername = _httpContextAccessor?.HttpContext?.User?.Identity?.Name 
+                ?? _httpContextAccessor?.HttpContext?.Session?.GetString("AccountName") 
+                ?? "SYSTEM";
             var now = DateTime.Now;
 
             var entries = ChangeTracker.Entries();

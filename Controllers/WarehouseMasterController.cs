@@ -204,80 +204,205 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                for (int i = 1; i < rows.Count; i++)
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 5) continue;
-
-                    string idStr = r[0];
-                    string name = r[1];
-                    string zip = r[2];
-                    string addr = r[3];
-                    string tel = r[4];
-
-                    if (string.IsNullOrWhiteSpace(idStr))
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        var newWh = new Warehouse
+                        var r = rows[i];
+                        if (r.Length < 5) continue;
+
+                        string idStr = r[0];
+                        string name = r[1];
+                        string zip = r[2];
+                        string addr = r[3];
+                        string tel = r[4];
+
+                        if (string.IsNullOrWhiteSpace(idStr))
                         {
-                            WarehouseId = Guid.NewGuid(),
-                            WarehouseName = name,
-                            ZipCode = zip,
-                            Address = addr,
-                            Tel = tel
-                        };
-                        _context.Warehouses.Add(newWh);
-                    }
-                    else
-                    {
-                        if (!Guid.TryParse(idStr, out var id))
-                        {
-                            throw new Exception($"{i + 1}行目: 倉庫IDのフォーマットが不正です。");
-                        }
-                        var existing = await _context.Warehouses.IgnoreQueryFilters().FirstOrDefaultAsync(w => w.WarehouseId == id)
-                                    ?? _context.Warehouses.Local.FirstOrDefault(w => w.WarehouseId == id);
-                        if (existing == null)
-                        {
-                            if (!createIfNotFound)
+                            var newWh = new Warehouse
                             {
-                                throw new Exception($"{i + 1}行目: 指定された倉庫ID ({idStr}) のレコードが存在しません。");
-                            }
-                            existing = new Warehouse
-                            {
-                                WarehouseId = id,
+                                WarehouseId = Guid.NewGuid(),
                                 WarehouseName = name,
                                 ZipCode = zip,
                                 Address = addr,
                                 Tel = tel
                             };
-                            _context.Warehouses.Add(existing);
+                            _context.Warehouses.Add(newWh);
                         }
                         else
                         {
-                            existing.WarehouseName = name;
-                            existing.ZipCode = zip;
-                            existing.Address = addr;
-                            existing.Tel = tel;
-                            existing.IsDeleted = false;
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 倉庫IDのフォーマットが不正です。({idStr})");
+                            }
+                            var existing = await _context.Warehouses.IgnoreQueryFilters().FirstOrDefaultAsync(w => w.WarehouseId == id)
+                                        ?? _context.Warehouses.Local.FirstOrDefault(w => w.WarehouseId == id);
+                            if (existing == null)
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された倉庫ID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new Warehouse
+                                {
+                                    WarehouseId = id,
+                                    WarehouseName = name,
+                                    ZipCode = zip,
+                                    Address = addr,
+                                    Tel = tel
+                                };
+                                _context.Warehouses.Add(existing);
+                            }
+                            else
+                            {
+                                existing.WarehouseName = name;
+                                existing.ZipCode = zip;
+                                existing.Address = addr;
+                                existing.Tel = tel;
+                                existing.IsDeleted = false;
+                            }
                         }
                     }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
                 TempData["SuccessMessage"] = "CSVのインポートが完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"インポートエラー: {detail}";
+                TempData["ErrorMessage"] = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}";
             }
 
             return RedirectToAction(nameof(Index));
+        }
+
+        /// <summary>
+        /// SSE ストリーミングを用いて倉庫マスターをリアルタイム進捗表示付きで高パフォーマンスに一括インポートします。
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task ImportCsvStream(IFormFile csvFile, bool createIfNotFound = false)
+        {
+            Response.ContentType = "text/event-stream";
+            Func<object, Task> sendProgressAsync = async (data) =>
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                await Response.WriteAsync($"data: {json}\n\n");
+                await Response.Body.FlushAsync();
+            };
+
+            if (csvFile == null || csvFile.Length == 0)
+            {
+                await sendProgressAsync(new { status = "error", message = "CSVファイルを選択してください。" });
+                return;
+            }
+
+            try
+            {
+                var rows = await CsvService.ReadCsvAsync(csvFile);
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
+                {
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    var existingMap = await _context.Warehouses.IgnoreQueryFilters().ToDictionaryAsync(w => w.WarehouseId);
+
+                    int total = rows.Count - 1;
+                    await sendProgressAsync(new { status = "start", current = 0, total = total, currentKey = "" });
+
+                    int processedCount = 0;
+                    int batchSize = 1000;
+
+                    for (int i = 1; i < rows.Count; i++)
+                    {
+                        var r = rows[i];
+                        if (r.Length < 2) continue;
+
+                        string idStr = (r[0] ?? "").Trim();
+                        string name = (r[1] ?? "").Trim();
+                        string zip = r.Length > 2 ? (r[2] ?? "").Trim() : "";
+                        string addr = r.Length > 3 ? (r[3] ?? "").Trim() : "";
+                        string tel = r.Length > 4 ? (r[4] ?? "").Trim() : "";
+
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+
+                        if (string.IsNullOrWhiteSpace(idStr))
+                        {
+                            var newWh = new Warehouse
+                            {
+                                WarehouseId = Guid.NewGuid(),
+                                WarehouseName = name,
+                                ZipCode = zip,
+                                Address = addr,
+                                Tel = tel
+                            };
+                            _context.Warehouses.Add(newWh);
+                        }
+                        else
+                        {
+                            if (!Guid.TryParse(idStr, out var id))
+                            {
+                                throw new Exception($"{i + 1}行目: 倉庫IDのフォーマットが不正です。({idStr})");
+                            }
+
+                            if (!existingMap.TryGetValue(id, out var existing))
+                            {
+                                if (!createIfNotFound)
+                                {
+                                    throw new Exception($"{i + 1}行目: 指定された倉庫ID ({idStr}) のレコードが存在しません。");
+                                }
+                                existing = new Warehouse
+                                {
+                                    WarehouseId = id,
+                                    WarehouseName = name,
+                                    ZipCode = zip,
+                                    Address = addr,
+                                    Tel = tel
+                                };
+                                _context.Warehouses.Add(existing);
+                                existingMap[id] = existing;
+                            }
+                            else
+                            {
+                                existing.WarehouseName = name;
+                                existing.ZipCode = zip;
+                                existing.Address = addr;
+                                existing.Tel = tel;
+                                existing.IsDeleted = false;
+                            }
+                        }
+
+                        processedCount++;
+
+                        if (processedCount % 100 == 0 || i == rows.Count - 1)
+                        {
+                            await sendProgressAsync(new { status = "processing", current = processedCount, total = total, currentKey = name });
+                        }
+
+                        if (processedCount % batchSize == 0)
+                        {
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    await sendProgressAsync(new { status = "completed", current = processedCount, total = total, message = $"倉庫マスターのインポートが完了しました。（全 {processedCount:N0} 件）" });
+                });
+            }
+            catch (Exception ex)
+            {
+                await sendProgressAsync(new { status = "error", message = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}" });
+            }
         }
     }
 }

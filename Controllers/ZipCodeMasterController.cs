@@ -207,54 +207,58 @@ namespace RouteXWms.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var existingMap = await _context.ZipCodes.IgnoreQueryFilters().ToDictionaryAsync(z => z.ZipCodeValue);
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                for (int i = 1; i < rows.Count; i++)
+                var strategy = _context.Database.CreateExecutionStrategy();
+
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 3) continue;
-
-                    string zip = (r[0] ?? "").Replace("-", "").Trim();
-                    string pref = (r[1] ?? "").Trim();
-                    string city = (r[2] ?? "").Trim();
-
-                    if (string.IsNullOrWhiteSpace(zip)) continue;
-
-                    if (!existingMap.TryGetValue(zip, out var existing))
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    var existingMap = await _context.ZipCodes.IgnoreQueryFilters().ToDictionaryAsync(z => z.ZipCodeValue);
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        if (!createIfNotFound)
+                        var r = rows[i];
+                        if (r.Length < 3) continue;
+
+                        string zip = (r[0] ?? "").Replace("-", "").Trim();
+                        string pref = (r[1] ?? "").Trim();
+                        string city = (r[2] ?? "").Trim();
+
+                        if (string.IsNullOrWhiteSpace(zip)) continue;
+
+                        if (!existingMap.TryGetValue(zip, out var existing))
                         {
-                            throw new Exception($"{i + 1}行目: 指定された郵便番号 ({zip}) のレコードが存在しません。");
+                            if (!createIfNotFound)
+                            {
+                                throw new Exception($"{i + 1}行目: 指定された郵便番号 ({zip}) のレコードが存在しません。");
+                            }
+                            var newZip = new ZipCode
+                            {
+                                ZipCodeValue = zip,
+                                PrefCode = pref,
+                                CityCode = city
+                            };
+                            _context.ZipCodes.Add(newZip);
+                            existingMap[zip] = newZip;
                         }
-                        var newZip = new ZipCode
+                        else
                         {
-                            ZipCodeValue = zip,
-                            PrefCode = pref,
-                            CityCode = city
-                        };
-                        _context.ZipCodes.Add(newZip);
-                        existingMap[zip] = newZip;
+                            existing.PrefCode = pref;
+                            existing.CityCode = city;
+                            existing.IsDeleted = false;
+                        }
                     }
-                    else
-                    {
-                        existing.PrefCode = pref;
-                        existing.CityCode = city;
-                        existing.IsDeleted = false;
-                    }
-                }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
                 TempData["SuccessMessage"] = "CSVのインポートが完了しました。";
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                TempData["ErrorMessage"] = $"インポートエラー: {detail}";
+                TempData["ErrorMessage"] = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}";
             }
 
             return RedirectToAction(nameof(Index));
@@ -286,73 +290,76 @@ namespace RouteXWms.Controllers
                 return;
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var existingMap = await _context.ZipCodes.IgnoreQueryFilters().ToDictionaryAsync(z => z.ZipCodeValue);
                 var rows = await CsvService.ReadCsvAsync(csvFile);
-                int total = rows.Count - 1;
-                await sendProgressAsync(new { status = "start", current = 0, total = total, currentKey = "" });
+                var strategy = _context.Database.CreateExecutionStrategy();
 
-                int processedCount = 0;
-                int batchSize = 1000;
-
-                for (int i = 1; i < rows.Count; i++)
+                await strategy.ExecuteAsync(async () =>
                 {
-                    var r = rows[i];
-                    if (r.Length < 3) continue;
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    var existingMap = await _context.ZipCodes.IgnoreQueryFilters().ToDictionaryAsync(z => z.ZipCodeValue);
+                    int total = rows.Count - 1;
+                    await sendProgressAsync(new { status = "start", current = 0, total = total, currentKey = "" });
 
-                    string zip = (r[0] ?? "").Replace("-", "").Trim();
-                    string pref = (r[1] ?? "").Trim();
-                    string city = (r[2] ?? "").Trim();
+                    int processedCount = 0;
+                    int batchSize = 1000;
 
-                    if (string.IsNullOrWhiteSpace(zip)) continue;
-
-                    if (!existingMap.TryGetValue(zip, out var existing))
+                    for (int i = 1; i < rows.Count; i++)
                     {
-                        if (!createIfNotFound)
+                        var r = rows[i];
+                        if (r.Length < 3) continue;
+
+                        string zip = (r[0] ?? "").Replace("-", "").Trim();
+                        string pref = (r[1] ?? "").Trim();
+                        string city = (r[2] ?? "").Trim();
+
+                        if (string.IsNullOrWhiteSpace(zip)) continue;
+
+                        if (!existingMap.TryGetValue(zip, out var existing))
                         {
-                            throw new Exception($"{i + 1}行目: 指定された郵便番号 ({zip}) のレコードが存在しません。");
+                            if (!createIfNotFound)
+                            {
+                                throw new Exception($"{i + 1}行目: 指定された郵便番号 ({zip}) のレコードが存在しません。");
+                            }
+                            var newZip = new ZipCode
+                            {
+                                ZipCodeValue = zip,
+                                PrefCode = pref,
+                                CityCode = city
+                            };
+                            _context.ZipCodes.Add(newZip);
+                            existingMap[zip] = newZip;
                         }
-                        var newZip = new ZipCode
+                        else
                         {
-                            ZipCodeValue = zip,
-                            PrefCode = pref,
-                            CityCode = city
-                        };
-                        _context.ZipCodes.Add(newZip);
-                        existingMap[zip] = newZip;
-                    }
-                    else
-                    {
-                        existing.PrefCode = pref;
-                        existing.CityCode = city;
-                        existing.IsDeleted = false;
-                    }
+                            existing.PrefCode = pref;
+                            existing.CityCode = city;
+                            existing.IsDeleted = false;
+                        }
 
-                    processedCount++;
+                        processedCount++;
 
-                    if (processedCount % 100 == 0 || i == rows.Count - 1)
-                    {
-                        await sendProgressAsync(new { status = "processing", current = processedCount, total = total, currentKey = zip });
+                        if (processedCount % 100 == 0 || i == rows.Count - 1)
+                        {
+                            await sendProgressAsync(new { status = "processing", current = processedCount, total = total, currentKey = zip });
+                        }
+
+                        if (processedCount % batchSize == 0)
+                        {
+                            await _context.SaveChangesAsync();
+                        }
                     }
 
-                    if (processedCount % batchSize == 0)
-                    {
-                        await _context.SaveChangesAsync();
-                    }
-                }
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                await sendProgressAsync(new { status = "completed", current = processedCount, total = total, message = $"CSVのインポートが完了しました。（全 {processedCount:N0} 件）" });
+                    await sendProgressAsync(new { status = "completed", current = processedCount, total = total, message = $"CSVのインポートが完了しました。（全 {processedCount:N0} 件）" });
+                });
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                var detail = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                await sendProgressAsync(new { status = "error", message = $"インポートエラー: {detail}" });
+                await sendProgressAsync(new { status = "error", message = $"インポートエラー: {RouteXWms.Helpers.ErrorHelper.ToUserFriendlyMessage(ex)}" });
             }
         }
     }

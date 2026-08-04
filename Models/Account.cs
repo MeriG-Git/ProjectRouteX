@@ -24,9 +24,21 @@ namespace RouteXWms.Models
         [StringLength(128)]
         public string Password { get; set; } = string.Empty;
 
-        /// <summary>権限ロール（0: システム管理者）</summary>
+        /// <summary>表示名（ユーザー氏名）</summary>
+        [Column("display_name", TypeName = "nvarchar(64)")]
+        [StringLength(64)]
+        public string? DisplayName { get; set; }
+
+        /// <summary>有効フラグ</summary>
+        [Column("is_active")]
+        public bool IsActive { get; set; } = true;
+
+        /// <summary>旧型権限ロール（互換性保持: 0: システム管理者）</summary>
         [Column("role")]
         public int Role { get; set; } = 0;
+
+        /// <summary>割り当てられているロール一覧</summary>
+        public virtual System.Collections.Generic.ICollection<AccountRole> AccountRoles { get; set; } = new System.Collections.Generic.List<AccountRole>();
 
         /// <summary>論理削除フラグ</summary>
         [Column("is_deleted")]

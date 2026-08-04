@@ -1,8 +1,16 @@
 @model IEnumerable<RouteXWms.Models.Account>
 @{
     ViewData["Title"] = "ユーザー設定";
+    var roles = ViewBag.Roles as List<RouteXWms.Models.Role> ?? new List<RouteXWms.Models.Role>();
 }
 
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-1"></i> @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
 @if (TempData["ErrorMessage"] != null)
 {
     <div class="alert alert-danger alert-dismissible fade show" role="alert">
@@ -14,18 +22,24 @@
 <div class="wms-card">
     <div class="wms-card-header">
         <h2 class="wms-card-title"><i class="bi bi-people me-2 text-primary"></i>ユーザーアカウント一覧</h2>
-        <button type="button" class="btn btn-wms-primary" data-bs-toggle="modal" data-bs-target="#editModal" onclick="openCreateModal()">
-            <i class="bi bi-plus-lg me-1"></i> 新規アカウント作成
-        </button>
+        <div>
+            <a asp-controller="RoleManagement" asp-action="Index" class="btn btn-outline-info me-2">
+                <i class="bi bi-shield-lock me-1"></i> ロール・権限マスタ管理
+            </a>
+            <button type="button" class="btn btn-wms-primary" data-bs-toggle="modal" data-bs-target="#editModal" onclick="openCreateModal()">
+                <i class="bi bi-plus-lg me-1"></i> 新規アカウント作成
+            </button>
+        </div>
     </div>
 
     <div class="table-responsive">
-        <table class="table table-wms">
+        <table class="table table-wms align-middle">
             <thead>
                 <tr>
                     <th>アカウント名</th>
-                    <th>権限ロール</th>
-                    <th>作成日時</th>
+                    <th>表示名（氏名）</th>
+                    <th>割り当てロール</th>
+                    <th>状態</th>
                     <th>更新日時</th>
                     <th class="text-end">操作</th>
                 </tr>
@@ -33,22 +47,37 @@
             <tbody>
                 @foreach (var item in Model)
                 {
+                    var userRoles = item.AccountRoles?.Select(ar => ar.Role?.RoleName).Where(r => r != null).ToList() ?? new List<string?>();
+                    var userRoleIdsJson = System.Text.Json.JsonSerializer.Serialize(item.AccountRoles?.Select(ar => ar.RoleId).ToList() ?? new List<int>());
                     <tr>
-                        <td class="fw-semibold">@item.AccountName</td>
+                        <td class="fw-semibold font-monospace">@item.AccountName</td>
+                        <td>@(string.IsNullOrEmpty(item.DisplayName) ? "-" : item.DisplayName)</td>
                         <td>
-                            @if (item.Role == 0)
+                            @if (userRoles.Any())
                             {
-                                <span class="badge bg-primary">システム管理者</span>
+                                foreach (var rName in userRoles)
+                                {
+                                    <span class="badge bg-primary bg-opacity-75 me-1">@rName</span>
+                                }
                             }
                             else
                             {
-                                <span class="badge bg-secondary">一般ユーザー</span>
+                                <span class="badge bg-secondary">ロールなし</span>
                             }
                         </td>
-                        <td>@item.CreatedAt?.ToString("yyyy-MM-dd HH:mm")</td>
-                        <td>@item.UpdatedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>
+                            @if (item.IsActive)
+                            {
+                                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>有効</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>停止中</span>
+                            }
+                        </td>
+                        <td class="small text-muted">@item.UpdatedAt?.ToString("yyyy-MM-dd HH:mm")</td>
                         <td class="text-end">
-                            <button type="button" class="btn btn-sm btn-outline-info me-1" onclick="openEditModal('@item.AccountName', '@item.Role')">
+                            <button type="button" class="btn btn-sm btn-outline-info me-1" onclick="openEditModal('@item.AccountName', '@Html.Raw(item.DisplayName)', '@item.IsActive.ToString().ToLower()', '@Html.Raw(userRoleIdsJson)')">
                                 <i class="bi bi-pencil"></i> 編集
                             </button>
                             @if (item.AccountName != "WMSAdmin")
@@ -82,14 +111,36 @@
                         <input type="text" id="AccountName" name="AccountName" class="form-control bg-secondary text-white border-0" required maxLength="32" />
                     </div>
                     <div class="mb-3">
+                        <label class="form-label">表示名（ユーザー氏名）</label>
+                        <input type="text" id="DisplayName" name="DisplayName" class="form-control bg-secondary text-white border-0" maxLength="64" placeholder="例: 山田 太郎" />
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label">パスワード <span id="pwdHelp" class="text-secondary small">(変更時のみ入力)</span></label>
                         <input type="password" id="Password" name="Password" class="form-control bg-secondary text-white border-0" maxLength="32" />
                     </div>
+                    <div class="mb-3" id="isActiveGroup">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="IsActive" name="IsActive" value="true" checked />
+                            <label class="form-check-label fw-bold" for="IsActive">アカウント有効</label>
+                        </div>
+                    </div>
                     <div class="mb-3">
-                        <label class="form-label">権限ロール <span class="text-danger">*</span></label>
-                        <select id="Role" name="Role" class="form-select bg-secondary text-white border-0" required>
-                            <option value="0">0: システム管理者</option>
-                        </select>
+                        <label class="form-label fw-bold">割り当てるロール <span class="text-danger">*</span></label>
+                        <div class="card bg-secondary border-0 p-3">
+                            @foreach (var role in roles)
+                            {
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input role-checkbox" type="checkbox" name="selectedRoleIds" value="@role.RoleId" id="role_@role.RoleId" />
+                                    <label class="form-check-label text-white" for="role_@role.RoleId">
+                                        <strong>@role.RoleName</strong> <span class="small text-light">(@role.RoleCode)</span>
+                                    </label>
+                                    @if (!string.IsNullOrEmpty(role.Description))
+                                    {
+                                        <div class="small text-warning">@role.Description</div>
+                                    }
+                                </div>
+                            }
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer border-secondary">
@@ -113,20 +164,32 @@
             document.getElementById('isNew').value = 'true';
             document.getElementById('AccountName').readOnly = false;
             document.getElementById('AccountName').value = '';
+            document.getElementById('DisplayName').value = '';
             document.getElementById('Password').required = true;
             document.getElementById('Password').value = '';
             document.getElementById('pwdHelp').style.display = 'none';
+            document.getElementById('IsActive').checked = true;
+            
+            // チェックボックス解除
+            document.querySelectorAll('.role-checkbox').forEach(cb => cb.checked = false);
         }
 
-        function openEditModal(name, role) {
+        function openEditModal(name, displayName, isActive, roleIdsJson) {
             document.getElementById('modalTitle').innerText = 'アカウント編集';
             document.getElementById('isNew').value = 'false';
             document.getElementById('AccountName').readOnly = true;
             document.getElementById('AccountName').value = name;
+            document.getElementById('DisplayName').value = displayName || '';
             document.getElementById('Password').required = false;
             document.getElementById('Password').value = '';
             document.getElementById('pwdHelp').style.display = 'inline';
-            document.getElementById('Role').value = role;
+            document.getElementById('IsActive').checked = (isActive === 'true');
+
+            var roleIds = JSON.parse(roleIdsJson || '[]');
+            document.querySelectorAll('.role-checkbox').forEach(cb => {
+                cb.checked = roleIds.includes(parseInt(cb.value));
+            });
+
             var modal = new bootstrap.Modal(document.getElementById('editModal'));
             modal.show();
         }
